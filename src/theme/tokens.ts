@@ -1,5 +1,3 @@
-// src/theme/tokens.ts
-
 export const colors = {
   light: {
     white: '#FFFFFF',
@@ -13,12 +11,12 @@ export const colors = {
   },
 
   dark: {
-    white: '#FFFFFF',
-    black: '#000000',
-    neutral: '#393939',
-    neutralMedium: '#A0A0A0',
-    primary: '#002E17',
-    greenLight: '#E6ECE2',
+    white: '#000000',
+    black: '#FFFFFF',
+    neutral: '#999999',
+    neutralMedium: '#666666',
+    primary: '#E6ECE2',
+    greenLight: '#00783cff',
     red: '#B40000',
     greenLime: '#158D00',
   },
@@ -36,7 +34,7 @@ export const spacing = {
 
 export const radii = {
   sm: 4,
-  md: 8, // primary radius
+  md: 8,
   lg: 12,
   pill: 999,
 };

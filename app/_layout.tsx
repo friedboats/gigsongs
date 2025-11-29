@@ -1,3 +1,9 @@
+import { AppThemeProvider, useAppTheme } from '@/src/theme/AppTheme';
+import {
+  InriaSans_400Regular,
+  InriaSans_700Bold,
+  useFonts,
+} from '@expo-google-fonts/inria-sans';
 import {
   DarkTheme,
   DefaultTheme,
@@ -5,17 +11,29 @@ import {
 } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
+import React from 'react';
 
-import {
-  InriaSans_400Regular,
-  InriaSans_700Bold,
-  useFonts,
-} from '@expo-google-fonts/inria-sans';
+function RootNavigation() {
+  const { mode, colors } = useAppTheme();
+
+  const baseTheme = mode === 'dark' ? DarkTheme : DefaultTheme;
+  const navTheme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      background: colors.white,
+    },
+  };
+
+  return (
+    <ThemeProvider value={navTheme}>
+      <Stack screenOptions={{ headerShown: false }} />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   const [fontsLoaded] = useFonts({
     InriaSans: InriaSans_400Regular,
     InriaSansBold: InriaSans_700Bold,
@@ -24,9 +42,8 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }} />
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <AppThemeProvider>
+      <RootNavigation />
+    </AppThemeProvider>
   );
 }

@@ -1,29 +1,88 @@
-// app/song/[id].tsx
-import { AppText } from '@/components/AppText';
+import { ThemeToggleButton } from '@/components/ThemeToggleButton';
+import { mockSongs } from '@/src/data/songs';
+import { useAppTheme } from '@/src/theme/AppTheme';
+import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
+  const { colors } = useAppTheme();
 
-  return (
-    <View style={{ flex: 1, paddingTop: 80, alignItems: 'center' }}>
-      <AppText style={{ fontSize: 24, marginBottom: 16 }}>
-        Song screen for ID: {id}
-      </AppText>
+  const song = mockSongs.find((s) => s.id === id);
 
-      <Pressable
-        onPress={() => router.back()}
+  // TODO: TEST STYLES
+  if (!song) {
+    return (
+      <View
         style={{
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-          borderRadius: 8,
-          backgroundColor: '#0B3B2E',
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 80,
+          paddingVertical: 40,
         }}
       >
-        <AppText style={{ color: 'white' }}>Back to list</AppText>
-      </Pressable>
+        <Text style={{ fontSize: 20, marginBottom: 16, color: colors.primary }}>
+          Song not found
+        </Text>
+        <Pressable
+          onPress={() => router.back()}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 8,
+            backgroundColor: colors.greenLight,
+          }}
+        >
+          <Text style={{ color: colors.primary }}>Back to list</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 80,
+          paddingVertical: 40,
+          width: '100%',
+        }}
+      >
+        <Pressable
+          onPress={() => router.back()}
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 8,
+            backgroundColor: colors.greenLight,
+          }}
+        >
+          <Text style={{ color: colors.primary }}>Back to list</Text>
+        </Pressable>
+
+        <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+          <Text
+            style={[textStyles.heading2, { color: colors.primary }]}
+            numberOfLines={1}
+          >
+            {song.title}
+          </Text>
+          <Text
+            style={[textStyles.heading4, { color: colors.primary }]}
+            numberOfLines={1}
+          >
+            {song.artist}
+          </Text>
+        </View>
+
+        <ThemeToggleButton />
+      </View>
     </View>
   );
 }

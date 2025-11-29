@@ -1,57 +1,59 @@
-// src/theme/styles.ts
 import { StyleSheet } from 'react-native';
-import { colors, radii, spacing, typography } from './tokens';
+import { radii, spacing, typography } from './tokens';
+
+/**
+ * IMPORTANT:
+ * No colors here. Colors come from useAppTheme().
+ * Styles here combine typography + spacing + layout only.
+ */
 
 export const textStyles = StyleSheet.create({
   body: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.regular,
-    color: colors.neutral,
   },
   bodyBold: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.neutral,
   },
   label: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
+    fontWeight: typography.weights.regular,
     letterSpacing: 0.3,
-    color: colors.neutralMedium,
   },
-  headingSm: {
-    fontFamily: typography.fontFamily,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  headingMd: {
-    fontFamily: typography.fontFamily,
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  headingLg: {
-    fontFamily: typography.fontFamily,
-    fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-  },
-  headingXl: {
+  heading1: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.xxxl,
     fontWeight: typography.weights.bold,
-    color: colors.primary,
+  },
+  heading2: {
+    fontFamily: typography.fontFamily,
+    fontSize: typography.sizes.xxl,
+    fontWeight: typography.weights.bold,
+  },
+  heading3: {
+    fontFamily: typography.fontFamily,
+    fontSize: typography.sizes.xl,
+    fontWeight: typography.weights.bold,
+  },
+  heading4: {
+    fontFamily: typography.fontFamily,
+    fontSize: typography.sizes.lg,
+    fontWeight: typography.weights.regular,
+  },
+  heading5: {
+    fontFamily: typography.fontFamily,
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.regular,
   },
 });
 
 export const layoutStyles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.white,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl * 3,
   },
@@ -69,17 +71,18 @@ export const layoutStyles = StyleSheet.create({
 export const cardStyles = StyleSheet.create({
   songRow: {
     borderRadius: radii.md,
-    backgroundColor: colors.greenLight,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
   },
 });
 
 export const buttonStyles = StyleSheet.create({
   primary: {
     borderRadius: radii.md,
-    backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     alignItems: 'center',
@@ -89,12 +92,10 @@ export const buttonStyles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.white,
   },
   ghost: {
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     alignItems: 'center',
@@ -105,6 +106,5 @@ export const buttonStyles = StyleSheet.create({
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.primary,
   },
 });

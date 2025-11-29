@@ -1,28 +1,41 @@
-import { AppText } from '@/components/AppText';
+import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
-import { Text } from 'react-native';
+import { typography } from '@/src/theme/tokens';
+import React from 'react';
+import { Text, View, useWindowDimensions } from 'react-native';
 
 export function MainHeader() {
+  const { width } = useWindowDimensions();
+  const { colors } = useAppTheme();
+
+  const baseSize = typography.sizes.xxxl;
+  const minSize = 40;
+
+  const fontSize =
+    width >= baseSize * 4
+      ? baseSize
+      : Math.max(minSize, (width / (baseSize * 4)) * baseSize);
+
   return (
-    <AppText
-      style={[
-        textStyles.headingXl,
-        { paddingVertical: 80, position: 'relative' },
-      ]}
+    <View
+      style={{
+        paddingVertical: 90,
+        paddingHorizontal: 80,
+        alignItems: 'center',
+        width: '100%',
+      }}
     >
-      <Text>GigSongs</Text>
       <Text
         style={[
+          textStyles.bodyBold,
           {
-            position: 'absolute',
-            fontSize: 14,
-            marginTop: 30,
-            marginLeft: 0,
+            fontSize,
+            color: colors.primary,
           },
         ]}
       >
-        ™
+        GigSongs
       </Text>
-    </AppText>
+    </View>
   );
 }

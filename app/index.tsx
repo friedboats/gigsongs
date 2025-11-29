@@ -1,24 +1,53 @@
-import { AppText } from '@/components/AppText';
 import { MainHeader } from '@/components/MainHeader';
-import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { SongRow } from '@/components/SongRow';
+import { ThemeToggleButton } from '@/components/ThemeToggleButton';
+import { mockSongs } from '@/src/data/songs';
+import { useAppTheme } from '@/src/theme/AppTheme';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 export default function Index() {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <MainHeader />
+  const { colors } = useAppTheme();
 
-      <Pressable
-        onPress={() => router.push('../song/[id].tsx')}
-        style={{
-          paddingHorizontal: 16,
-          paddingVertical: 10,
-          borderRadius: 8,
-          backgroundColor: '#0B3B2E',
-        }}
-      >
-        <AppText style={{ color: 'white' }}>Open song</AppText>
-      </Pressable>
-    </View>
+  return (
+    <ScrollView
+      contentContainerStyle={[
+        styles.container,
+        { backgroundColor: colors.white },
+      ]}
+    >
+      <View style={styles.headerWrapper}>
+        <MainHeader />
+      </View>
+
+      <View style={styles.toggleRow}>
+        <ThemeToggleButton />
+      </View>
+
+      <View style={styles.listWrapper}>
+        {mockSongs.map((song, index) => (
+          <SongRow key={song.id} song={song} index={index} />
+        ))}
+      </View>
+    </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    paddingHorizontal: 80,
+    paddingBottom: 40,
+  },
+  headerWrapper: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  toggleRow: {
+    alignItems: 'center',
+    position: 'absolute',
+    top: 20,
+    right: 20,
+  },
+  listWrapper: {
+    marginTop: 20,
+  },
+});
