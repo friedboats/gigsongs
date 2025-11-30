@@ -20,7 +20,7 @@ export function MainHeader() {
     <View
       style={{
         paddingVertical: 90,
-        paddingHorizontal: 80,
+        paddingHorizontal: 40,
         alignItems: 'center',
         width: '100%',
       }}
@@ -31,6 +31,7 @@ export function MainHeader() {
           {
             fontSize,
             color: colors.primary,
+            paddingHorizontal: 40,
           },
         ]}
       >

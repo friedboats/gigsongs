@@ -51,23 +51,6 @@ export const textStyles = StyleSheet.create({
   },
 });
 
-export const layoutStyles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl * 3,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});
-
 export const cardStyles = StyleSheet.create({
   songRow: {
     borderRadius: radii.md,
@@ -83,10 +66,11 @@ export const cardStyles = StyleSheet.create({
 export const buttonStyles = StyleSheet.create({
   primary: {
     borderRadius: radii.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    fontSize: typography.sizes.md,
   },
   primaryText: {
     fontFamily: typography.fontFamily,

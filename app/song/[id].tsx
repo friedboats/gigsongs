@@ -1,9 +1,10 @@
+import ArrowLeftIcon from '@/assets/svgs/arrowLeft.svg';
 import { ThemeToggleButton } from '@/components/ThemeToggleButton';
 import { mockSongs } from '@/src/data/songs';
 import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -20,23 +21,31 @@ export default function SongScreen() {
           flex: 1,
           justifyContent: 'center',
           alignItems: 'center',
-          paddingHorizontal: 80,
+          paddingHorizontal: 40,
           paddingVertical: 40,
         }}
       >
         <Text style={{ fontSize: 20, marginBottom: 16, color: colors.primary }}>
           Song not found
         </Text>
+
         <Pressable
           onPress={() => router.back()}
-          style={{
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            borderRadius: 8,
-            backgroundColor: colors.greenLight,
-          }}
+          style={[
+            styles.backButton,
+            {
+              backgroundColor: colors.primary,
+              alignContent: 'center',
+              flexDirection: 'row',
+              gap: 8,
+            },
+          ]}
         >
-          <Text style={{ color: colors.primary }}>Back to list</Text>
+          <ArrowLeftIcon width={18} height={18} color={colors.primary} />
+
+          <Text style={[styles.backButtonText, { color: colors.primary }]}>
+            Back
+          </Text>
         </Pressable>
       </View>
     );
@@ -49,21 +58,28 @@ export default function SongScreen() {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingHorizontal: 80,
+          paddingHorizontal: 40,
           paddingVertical: 40,
           width: '100%',
         }}
       >
         <Pressable
           onPress={() => router.back()}
-          style={{
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            borderRadius: 8,
-            backgroundColor: colors.greenLight,
-          }}
+          style={[
+            styles.backButton,
+            {
+              backgroundColor: colors.greenLight,
+              alignContent: 'center',
+              flexDirection: 'row',
+              gap: 8,
+            },
+          ]}
         >
-          <Text style={{ color: colors.primary }}>Back to list</Text>
+          <ArrowLeftIcon width={18} height={18} color={colors.primary} />
+
+          <Text style={[styles.backButtonText, { color: colors.primary }]}>
+            Back
+          </Text>
         </Pressable>
 
         <View style={{ flex: 1, alignItems: 'center', gap: 4 }}>
@@ -86,3 +102,16 @@ export default function SongScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  backButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backButtonText: {
+    fontSize: 18,
+  },
+});
