@@ -51,9 +51,4 @@ export const typography = {
     xxl: 36,
     xxxl: 96,
   },
-
-  weights: {
-    regular: '400' as const,
-    bold: '700' as const,
-  },
 };

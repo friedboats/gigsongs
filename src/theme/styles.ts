@@ -11,43 +11,36 @@ export const textStyles = StyleSheet.create({
   body: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.regular,
   },
   bodyBold: {
-    fontFamily: typography.fontFamily,
+    fontFamily: typography.fontFamilyBold,
     fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
   },
   label: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.regular,
     letterSpacing: 0.3,
   },
   heading1: {
-    fontFamily: typography.fontFamily,
+    fontFamily: typography.fontFamilyBold,
     fontSize: typography.sizes.xxxl,
-    fontWeight: typography.weights.bold,
   },
   heading2: {
-    fontFamily: typography.fontFamily,
-    fontSize: typography.sizes.xxl,
-    fontWeight: typography.weights.bold,
+    fontFamily: typography.fontFamilyBold,
+    fontSize: typography.sizes.xl,
+    letterSpacing: 0,
   },
   heading3: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.xl,
-    fontWeight: typography.weights.bold,
   },
   heading4: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.regular,
   },
   heading5: {
     fontFamily: typography.fontFamily,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.regular,
   },
 });
 
@@ -73,9 +66,8 @@ export const buttonStyles = StyleSheet.create({
     fontSize: typography.sizes.md,
   },
   primaryText: {
-    fontFamily: typography.fontFamily,
+    fontFamily: typography.fontFamilyBold,
     fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
   },
   ghost: {
     borderRadius: radii.md,
@@ -87,8 +79,7 @@ export const buttonStyles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   ghostText: {
-    fontFamily: typography.fontFamily,
+    fontFamily: typography.fontFamilyBold,
     fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
   },
 });

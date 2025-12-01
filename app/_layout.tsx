@@ -12,6 +12,7 @@ import {
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 function RootNavigation() {
   const { mode, colors } = useAppTheme();
@@ -26,10 +27,12 @@ function RootNavigation() {
   };
 
   return (
-    <ThemeProvider value={navTheme}>
-      <Stack screenOptions={{ headerShown: false }} />
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider value={navTheme}>
+        <Stack screenOptions={{ headerShown: false }} />
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -1,6 +1,13 @@
+import ClearCircle from '@/assets/svgs/clearCircle.svg';
 import { useAppTheme } from '@/src/theme/AppTheme';
-import React from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import React, { useRef } from 'react';
+import {
+  Pressable,
+  TextInput as RNTextInput,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 type SearchInputProps = {
   value: string;
@@ -8,15 +15,22 @@ type SearchInputProps = {
   placeholder?: string;
 };
 
+const CONTROL_HEIGHT = 48;
+
 export function SearchInput({
   value,
   onChangeText,
   placeholder = 'Search',
 }: SearchInputProps) {
   const { colors } = useAppTheme();
+  const inputRef = useRef<RNTextInput>(null);
+  const hasValue = value.length > 0;
 
   return (
-    <View
+    <Pressable
+      onPress={() => {
+        inputRef.current?.focus();
+      }}
       style={[
         styles.container,
         {
@@ -25,6 +39,7 @@ export function SearchInput({
         },
       ]}
     >
+      {/* Magnifier */}
       <View style={styles.iconWrapper}>
         <View
           style={[styles.iconCircle, { borderColor: colors.neutralMedium }]}
@@ -34,14 +49,15 @@ export function SearchInput({
         />
       </View>
 
+      {/* Text Input */}
       <TextInput
+        ref={inputRef}
         value={value}
         onChangeText={onChangeText}
         style={[
           styles.input,
           {
             color: colors.neutral,
-            width: '100%',
             outlineStyle: 'solid',
             outlineWidth: 0,
             outlineColor: 'transparent',
@@ -51,10 +67,24 @@ export function SearchInput({
         placeholderTextColor={colors.neutralMedium}
         autoCapitalize="none"
         autoCorrect={false}
-        clearButtonMode="while-editing"
         underlineColorAndroid="transparent"
       />
-    </View>
+
+      {/* Clear Button */}
+      {hasValue && (
+        <Pressable
+          onPress={() => {
+            onChangeText('');
+            // Immediately re-focus input after clearing
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+          hitSlop={8}
+          style={styles.clearButton}
+        >
+          <ClearCircle width={22} height={22} color={colors.neutralMedium} />
+        </Pressable>
+      )}
+    </Pressable>
   );
 }
 
@@ -65,7 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: 12,
-    height: 40,
+    height: CONTROL_HEIGHT,
   },
 
   iconWrapper: {
@@ -74,9 +104,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: -2, // your 2px upward shift
   },
 
-  // Lens
   iconCircle: {
     width: 12,
     height: 12,
@@ -84,14 +114,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
 
-  // Handle – positioned at bottom-right, then rotated
   iconHandle: {
     position: 'absolute',
     width: 8,
     height: 2,
     borderRadius: 1,
-    left: 13, // move out from circle edge
-    top: 16, // sit just below/right of the lens
+    left: 13,
+    top: 16,
     transform: [{ rotate: '45deg' }],
   },
 
@@ -99,5 +128,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     paddingVertical: 0,
+  },
+
+  clearButton: {
+    marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

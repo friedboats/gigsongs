@@ -11,6 +11,8 @@ type SongPanelProps = {
   onChangeQuery: (text: string) => void;
 };
 
+const CONTROL_HEIGHT = 48;
+
 export const SongPanel = ({ query, onChangeQuery }: SongPanelProps) => {
   const { colors } = useAppTheme();
 
@@ -58,14 +60,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 48,
+    gap: 32,
   },
 
   leftGroup: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 48,
+    gap: 32,
   },
 
   searchWrapper: {
@@ -74,10 +76,10 @@ const styles = StyleSheet.create({
 
   createButton: {
     paddingHorizontal: 24,
-    paddingVertical: 16,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    minHeight: CONTROL_HEIGHT,
   },
 
   createButtonText: {
