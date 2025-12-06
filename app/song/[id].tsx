@@ -4,7 +4,23 @@ import { mockSongs } from '@/src/data/songs';
 import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+// Step 1 temporary mock lyrics
+const MOCK_LYRICS = `This is a sample lyric line.
+Tap here and type to edit these lyrics.
+Blank lines also work.
+
+Later, chords will appear above lyric rows.
+But for now, this is just clean editable text.`;
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -13,18 +29,11 @@ export default function SongScreen() {
 
   const song = mockSongs.find((s) => s.id === id);
 
-  // TODO: TEST STYLES
+  const [lyrics, setLyrics] = useState(MOCK_LYRICS);
+
   if (!song) {
     return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          paddingHorizontal: 40,
-          paddingVertical: 40,
-        }}
-      >
+      <View style={styles.notFoundWrapper}>
         <Text style={{ fontSize: 20, marginBottom: 16, color: colors.primary }}>
           Song not found
         </Text>
@@ -33,17 +42,11 @@ export default function SongScreen() {
           onPress={() => router.back()}
           style={[
             styles.backButton,
-            {
-              backgroundColor: colors.primary,
-              alignContent: 'center',
-              flexDirection: 'row',
-              gap: 8,
-            },
+            { backgroundColor: colors.primary, flexDirection: 'row', gap: 8 },
           ]}
         >
-          <ArrowLeftIcon width={18} height={18} color={colors.primary} />
-
-          <Text style={[styles.backButtonText, { color: colors.primary }]}>
+          <ArrowLeftIcon width={18} height={18} color={colors.white} />
+          <Text style={[styles.backButtonText, { color: colors.white }]}>
             Back
           </Text>
         </Pressable>
@@ -52,7 +55,8 @@ export default function SongScreen() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.white }}>
+      {/* HEADER (unchanged) */}
       <View
         style={{
           flexDirection: 'row',
@@ -69,14 +73,12 @@ export default function SongScreen() {
             styles.backButton,
             {
               backgroundColor: colors.greenLight,
-              alignContent: 'center',
               flexDirection: 'row',
               gap: 8,
             },
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.primary} />
-
           <Text style={[styles.backButtonText, { color: colors.primary }]}>
             Back
           </Text>
@@ -99,11 +101,44 @@ export default function SongScreen() {
 
         <ThemeToggleButton />
       </View>
+
+      {/* STEP 1: CLEAN EDITABLE LYRICS */}
+      <ScrollView
+        contentContainerStyle={styles.lyricsContainer}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TextInput
+          multiline
+          value={lyrics}
+          onChangeText={setLyrics}
+          style={[
+            styles.lyricsText,
+            {
+              color: colors.neutral,
+              backgroundColor: 'transparent',
+            },
+          ]}
+          placeholder="Type or paste your lyrics..."
+          placeholderTextColor={colors.neutralMedium}
+          underlineColorAndroid="transparent"
+          autoCapitalize="sentences"
+          autoCorrect
+          textAlignVertical="top"
+        />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  notFoundWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 40,
+  },
+
   backButton: {
     paddingHorizontal: 24,
     paddingVertical: 16,
@@ -111,7 +146,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   backButtonText: {
     fontSize: 18,
+  },
+
+  lyricsContainer: {
+    paddingHorizontal: 40,
+    paddingBottom: 80,
+  },
+
+  lyricsText: {
+    fontSize: 18,
+    lineHeight: 28,
+    padding: 0,
+    margin: 0,
+    borderWidth: 0,
+    includeFontPadding: false,
   },
 });
