@@ -5,6 +5,10 @@ import {
   useFonts,
 } from '@expo-google-fonts/inria-sans';
 import {
+  OverpassMono_400Regular,
+  OverpassMono_700Bold,
+} from '@expo-google-fonts/overpass-mono';
+import {
   DarkTheme,
   DefaultTheme,
   ThemeProvider,
@@ -40,6 +44,8 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     InriaSans: InriaSans_400Regular,
     InriaSansBold: InriaSans_700Bold,
+    OverpassMono: OverpassMono_400Regular,
+    OverpassMonoBold: OverpassMono_700Bold,
   });
 
   if (!fontsLoaded) return null;

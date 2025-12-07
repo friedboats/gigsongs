@@ -1,10 +1,10 @@
 import ArrowLeftIcon from '@/assets/svgs/arrowLeft.svg';
 import { ThemeToggleButton } from '@/components/ThemeToggleButton';
-import { mockSongs } from '@/src/data/songs';
+import { mockSongs, type Song } from '@/src/data/songs';
 import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -14,22 +14,100 @@ import {
   View,
 } from 'react-native';
 
-// Step 1 temporary mock lyrics
-const MOCK_LYRICS = `This is a sample lyric line.
-Tap here and type to edit these lyrics.
-Blank lines also work.
+type LyricRow = {
+  id: string;
+  text: string;
+  chords: any[]; // will become real chord instances later
+};
 
-Later, chords will appear above lyric rows.
-But for now, this is just clean editable text.`;
+type ChordType = {
+  id: string;
+  label: string; // e.g. "G", "Gmaj7"
+};
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
   const { colors } = useAppTheme();
 
-  const song = mockSongs.find((s) => s.id === id);
+  const song: Song | undefined = useMemo(
+    () => mockSongs.find((s) => s.id === id),
+    [id],
+  );
 
-  const [lyrics, setLyrics] = useState(MOCK_LYRICS);
+  // Lyrics rows (always an array)
+  const [rows, setRows] = useState<LyricRow[]>([
+    {
+      id: 'row-1',
+      text: 'This is a sample lyric line.',
+      chords: [],
+    },
+    {
+      id: 'row-2',
+      text: 'Tap here and type to edit these lyrics.',
+      chords: [],
+    },
+    { id: 'row-3', text: '', chords: [] },
+    {
+      id: 'row-4',
+      text: 'Later, chords will appear above lyric rows.',
+      chords: [],
+    },
+    {
+      id: 'row-5',
+      text: 'But for now, this is just clean editable text.',
+      chords: [],
+    },
+  ]);
+
+  // Chord palette (types, not positions)
+  const [chordPalette, setChordPalette] = useState<ChordType[]>([
+    { id: 'chord-1', label: 'G' },
+    { id: 'chord-2', label: 'C' },
+    { id: 'chord-3', label: 'D' },
+    { id: 'chord-4', label: 'Em' },
+  ]);
+
+  const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
+  const [isAddingChord, setIsAddingChord] = useState(false);
+  const [newChordLabel, setNewChordLabel] = useState('');
+
+  const handleToggleSelectChord = (id: string) => {
+    setSelectedChordId((current) => (current === id ? null : id));
+  };
+
+  const handleConfirmAddChord = () => {
+    const trimmed = newChordLabel.trim();
+    if (!trimmed) return;
+
+    const exists = chordPalette.some(
+      (c) => c.label.toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (exists) {
+      setIsAddingChord(false);
+      setNewChordLabel('');
+      return;
+    }
+
+    const newChord: ChordType = {
+      id: `chord-${Date.now()}`,
+      label: trimmed,
+    };
+
+    setChordPalette((prev) => [...prev, newChord]);
+    setNewChordLabel('');
+    setIsAddingChord(false);
+  };
+
+  const handleCancelAddChord = () => {
+    setNewChordLabel('');
+    setIsAddingChord(false);
+  };
+
+  const handleRemoveChord = (idToRemove: string) => {
+    setChordPalette((prev) => prev.filter((c) => c.id !== idToRemove));
+    setSelectedChordId((current) => (current === idToRemove ? null : current));
+  };
 
   if (!song) {
     return (
@@ -42,10 +120,15 @@ export default function SongScreen() {
           onPress={() => router.back()}
           style={[
             styles.backButton,
-            { backgroundColor: colors.primary, flexDirection: 'row', gap: 8 },
+            {
+              backgroundColor: colors.primary,
+              flexDirection: 'row',
+              gap: 8,
+            },
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.white} />
+
           <Text style={[styles.backButtonText, { color: colors.white }]}>
             Back
           </Text>
@@ -56,7 +139,6 @@ export default function SongScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.white }}>
-      {/* HEADER (unchanged) */}
       <View
         style={{
           flexDirection: 'row',
@@ -79,6 +161,7 @@ export default function SongScreen() {
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.primary} />
+
           <Text style={[styles.backButtonText, { color: colors.primary }]}>
             Back
           </Text>
@@ -102,30 +185,177 @@ export default function SongScreen() {
         <ThemeToggleButton />
       </View>
 
-      {/* STEP 1: CLEAN EDITABLE LYRICS */}
-      <ScrollView
-        contentContainerStyle={styles.lyricsContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        <TextInput
-          multiline
-          value={lyrics}
-          onChangeText={setLyrics}
+      {/* Body: lyrics area + bottom chord palette */}
+      <View style={styles.body}>
+        {/* Lyrics editor area */}
+        <ScrollView
+          style={styles.lyricsScroll}
+          contentContainerStyle={styles.lyricsContainer}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.lyricsWrapper}>
+            {rows.map((row) => (
+              <View key={row.id} style={styles.rowBlock}>
+                {row.chords.length > 0 && (
+                  <View style={styles.chordRowPlaceholder} />
+                )}
+
+                <TextInput
+                  value={row.text}
+                  multiline
+                  onChangeText={(txt) => {
+                    setRows((prev) =>
+                      prev.map((r) =>
+                        r.id === row.id ? { ...r, text: txt } : r,
+                      ),
+                    );
+                  }}
+                  style={[styles.lyricLine, { color: colors.neutral }]}
+                  placeholder=""
+                  placeholderTextColor={colors.neutralMedium}
+                  underlineColorAndroid="transparent"
+                  autoCapitalize="sentences"
+                  autoCorrect
+                  textAlignVertical="top"
+                />
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+
+        {/* Bottom chord palette bar (Edit mode only for now) */}
+        <View
           style={[
-            styles.lyricsText,
+            styles.paletteBar,
             {
-              color: colors.neutral,
-              backgroundColor: 'transparent',
+              borderTopColor: colors.neutralMedium + '33',
+              backgroundColor: colors.white,
             },
           ]}
-          placeholder="Type or paste your lyrics..."
-          placeholderTextColor={colors.neutralMedium}
-          underlineColorAndroid="transparent"
-          autoCapitalize="sentences"
-          autoCorrect
-          textAlignVertical="top"
-        />
-      </ScrollView>
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.paletteContent}
+          >
+            {chordPalette.map((chord) => {
+              const isSelected = selectedChordId === chord.id;
+
+              return (
+                <View key={chord.id} style={styles.chordPillWrapper}>
+                  <Pressable
+                    onPress={() => handleToggleSelectChord(chord.id)}
+                    onLongPress={() => {
+                      // Later: start drag from palette
+                      console.log(
+                        'Long-pressed chord type (ready for drag):',
+                        chord,
+                      );
+                    }}
+                    delayLongPress={150}
+                    style={({ pressed }) => [
+                      styles.chordPill,
+                      {
+                        backgroundColor: isSelected
+                          ? colors.greenLight
+                          : colors.greenLight,
+                        opacity: pressed ? 0.8 : 1,
+                        borderColor: isSelected
+                          ? colors.primary
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontSize: 16,
+                        fontFamily: 'OverpassMono',
+                      }}
+                    >
+                      {chord.label}
+                    </Text>
+
+                    {isSelected && (
+                      <Pressable
+                        onPress={() => handleRemoveChord(chord.id)}
+                        hitSlop={8}
+                        style={styles.chordDeleteButton}
+                      >
+                        <Text
+                          style={{
+                            color: colors.neutralMedium,
+                            fontSize: 12,
+                          }}
+                        >
+                          ✕
+                        </Text>
+                      </Pressable>
+                    )}
+                  </Pressable>
+                </View>
+              );
+            })}
+
+            {/* Add chord UI */}
+            {!isAddingChord ? (
+              <Pressable
+                onPress={() => {
+                  setSelectedChordId(null);
+                  setIsAddingChord(true);
+                }}
+                style={[
+                  styles.addChordButton,
+                  {
+                    borderColor: colors.neutralMedium,
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 16, color: colors.primary }}>
+                  + Add chord
+                </Text>
+              </Pressable>
+            ) : (
+              <View style={styles.addChordRow}>
+                <TextInput
+                  value={newChordLabel}
+                  onChangeText={setNewChordLabel}
+                  placeholder="e.g. G, Gmaj7"
+                  placeholderTextColor={colors.neutralMedium}
+                  style={[
+                    styles.addChordInput,
+                    {
+                      borderColor: colors.neutralMedium,
+                      color: colors.neutral,
+                    },
+                  ]}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  underlineColorAndroid="transparent"
+                />
+
+                <Pressable
+                  onPress={handleConfirmAddChord}
+                  hitSlop={6}
+                  style={styles.addChordAction}
+                >
+                  <Text style={{ fontSize: 18, color: colors.primary }}>✓</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleCancelAddChord}
+                  hitSlop={6}
+                  style={styles.addChordAction}
+                >
+                  <Text style={{ fontSize: 18, color: colors.neutralMedium }}>
+                    ✕
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
     </View>
   );
 }
@@ -138,7 +368,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 40,
   },
-
   backButton: {
     paddingHorizontal: 24,
     paddingVertical: 16,
@@ -146,22 +375,95 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   backButtonText: {
     fontSize: 18,
+  },
+  body: {
+    flex: 1,
+  },
+  lyricsScroll: {
+    flex: 1,
   },
 
   lyricsContainer: {
     paddingHorizontal: 40,
     paddingBottom: 80,
+    // backgroundColor: 'blue',
   },
 
-  lyricsText: {
-    fontSize: 18,
-    lineHeight: 28,
+  lyricsWrapper: {
+    width: '100%',
+    // backgroundColor: 'yellow',
+  },
+
+  rowBlock: {
+    marginBottom: 0,
+  },
+
+  chordRowPlaceholder: {
+    height: 24,
+    marginBottom: 4,
+    backgroundColor: 'transparent',
+  },
+  lyricLine: {
     padding: 0,
-    margin: 0,
     borderWidth: 0,
     includeFontPadding: false,
+    textAlign: 'left',
+    backgroundColor: 'transparent',
+    fontFamily: 'OverpassMono',
+    fontSize: 16,
+    lineHeight: 21,
+  },
+  // Bottom chord palette
+  paletteBar: {
+    borderTopWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  paletteContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  chordPillWrapper: {
+    marginRight: 8,
+  },
+  chordPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chordDeleteButton: {
+    marginLeft: 6,
+  },
+  addChordButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  addChordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 4,
+    gap: 8,
+  },
+  addChordInput: {
+    minWidth: 140,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 16,
+  },
+  addChordAction: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
 });
