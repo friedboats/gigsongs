@@ -14,15 +14,22 @@ import {
   View,
 } from 'react-native';
 
+type ChordInstance = {
+  id: string;
+  typeId: string;
+  charIndex: number;
+};
+
 type LyricRow = {
   id: string;
   text: string;
-  chords: any[]; // will become real chord instances later
+  grid: string[];
+  chords: ChordInstance[];
 };
 
 type ChordType = {
   id: string;
-  label: string; // e.g. "G", "Gmaj7"
+  label: string;
 };
 
 export default function SongScreen() {
@@ -40,22 +47,26 @@ export default function SongScreen() {
     {
       id: 'row-1',
       text: 'This is a sample lyric line.',
+      grid: 'This is a sample lyric line.'.split(''),
       chords: [],
     },
     {
       id: 'row-2',
       text: 'Tap here and type to edit these lyrics.',
+      grid: 'Tap here and type to edit these lyrics.'.split(''),
       chords: [],
     },
-    { id: 'row-3', text: '', chords: [] },
+    { id: 'row-3', text: '', grid: ''.split(''), chords: [] },
     {
       id: 'row-4',
       text: 'Later, chords will appear above lyric rows.',
+      grid: 'Later, chords will appear above lyric rows.'.split(''),
       chords: [],
     },
     {
       id: 'row-5',
       text: 'But for now, this is just clean editable text.',
+      grid: 'But for now, this is just clean editable text.'.split(''),
       chords: [],
     },
   ]);
@@ -204,9 +215,11 @@ export default function SongScreen() {
                   value={row.text}
                   multiline
                   onChangeText={(txt) => {
+                    const grid = txt.split('');
+
                     setRows((prev) =>
                       prev.map((r) =>
-                        r.id === row.id ? { ...r, text: txt } : r,
+                        r.id === row.id ? { ...r, text: txt, grid } : r,
                       ),
                     );
                   }}
