@@ -4,7 +4,7 @@ import { mockSongs, type Song } from '@/src/data/songs';
 import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -23,6 +23,7 @@ type ChordInstance = {
 type LyricRow = {
   id: string;
   text: string;
+  grid: string[];
   chords: ChordInstance[];
 };
 
@@ -30,8 +31,6 @@ type ChordType = {
   id: string;
   label: string;
 };
-
-const makeRowId = () => `row-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -44,10 +43,16 @@ export default function SongScreen() {
   );
 
   const [rows, setRows] = useState<LyricRow[]>([
-    { id: 'row-1', text: 'This is a sample lyric line.', chords: [] },
+    {
+      id: 'row-1',
+      text: 'This is a sample lyric line.',
+      grid: 'This is a sample lyric line.'.split(''),
+      chords: [],
+    },
     {
       id: 'row-2',
       text: 'When the night is cold',
+      grid: 'When the night is cold'.split(''),
       chords: [
         { id: 'ci-1', typeId: 'chord-1', charIndex: 1 }, // G
         { id: 'ci-2', typeId: 'chord-2', charIndex: 5 }, // Cmaj
@@ -55,15 +60,17 @@ export default function SongScreen() {
         { id: 'ci-4', typeId: 'chord-1', charIndex: 20 }, // G
       ],
     },
-    { id: 'row-3', text: '', chords: [] },
+    { id: 'row-3', text: '', grid: ''.split(''), chords: [] },
     {
       id: 'row-4',
       text: 'Later, chords will appear above lyric rows.',
+      grid: 'Later, chords will appear above lyric rows.'.split(''),
       chords: [],
     },
     {
       id: 'row-5',
       text: 'But for now, this is just clean editable text.',
+      grid: 'But for now, this is just clean editable text.'.split(''),
       chords: [],
     },
   ]);
@@ -79,11 +86,27 @@ export default function SongScreen() {
   const [isAddingChord, setIsAddingChord] = useState(false);
   const [newChordLabel, setNewChordLabel] = useState('');
 
-  // Refs for caret + focusing
+  // Focus management
   const inputRefs = useRef<Record<string, TextInput | null>>({});
-  const selectionRef = useRef<Record<string, { start: number; end: number }>>(
+  const pendingFocus = useRef<{ rowId: string; textLen: number } | null>(null);
+
+  // Caret selection per row
+  const selectionByRow = useRef<Record<string, { start: number; end: number }>>(
     {},
   );
+
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+
+    const { rowId, textLen } = pendingFocus.current;
+    pendingFocus.current = null;
+
+    requestAnimationFrame(() => {
+      const input = inputRefs.current[rowId];
+      input?.focus();
+      input?.setNativeProps({ selection: { start: textLen, end: textLen } });
+    });
+  }, [rows]);
 
   const getChordLabel = (typeId: string) =>
     chordPalette.find((c) => c.id === typeId)?.label ?? '?';
@@ -94,7 +117,7 @@ export default function SongScreen() {
     const minIndex = Math.min(0, ...row.chords.map((c) => c.charIndex));
     const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
 
-    const lyricLen = row.text.length;
+    const lyricLen = row.grid.length;
 
     const chordEnd = Math.max(
       0,
@@ -120,7 +143,14 @@ export default function SongScreen() {
     });
 
     return (
-      <Text style={[styles.chordDebugLine, { color: 'green' }]}>
+      <Text
+        style={{
+          fontFamily: 'OverpassMono',
+          fontSize: 16,
+          color: 'green',
+          marginBottom: 2,
+        }}
+      >
         {chars.join('')}
       </Text>
     );
@@ -143,10 +173,12 @@ export default function SongScreen() {
       return;
     }
 
-    setChordPalette((prev) => [
-      ...prev,
-      { id: `chord-${Date.now()}`, label: trimmed },
-    ]);
+    const newChord: ChordType = {
+      id: `chord-${Date.now()}`,
+      label: trimmed,
+    };
+
+    setChordPalette((prev) => [...prev, newChord]);
     setNewChordLabel('');
     setIsAddingChord(false);
   };
@@ -161,45 +193,30 @@ export default function SongScreen() {
     setSelectedChordId((current) => (current === idToRemove ? null : current));
   };
 
-  const removeRow = (rowId: string) => {
+  // Backspace at start merges current row into previous row
+  const mergeRowIntoPrev = (rowId: string) => {
     setRows((prev) => {
       const index = prev.findIndex((r) => r.id === rowId);
-      if (index <= 0) return prev;
-      return prev.filter((r) => r.id !== rowId);
-    });
-  };
+      if (index <= 0) return prev; // don't merge/delete first row
 
-  const splitRowAtCaret = (rowId: string) => {
-    setRows((prev) => {
-      const index = prev.findIndex((r) => r.id === rowId);
-      if (index === -1) return prev;
+      const current = prev[index];
+      const prevRow = prev[index - 1];
 
-      const row = prev[index];
-      const sel = selectionRef.current[rowId] ?? {
-        start: row.text.length,
-        end: row.text.length,
-      };
-      const caret = Math.min(Math.max(sel.start, 0), row.text.length);
+      const mergedText = prevRow.text + current.text;
+      const mergedGrid = mergedText.split('');
 
-      const before = row.text.slice(0, caret);
-      const after = row.text.slice(caret);
-
-      const newRowId = makeRowId();
-      const newRow: LyricRow = {
-        id: newRowId,
-        text: after,
-        chords: [], // TODO later: decide if chords should move/split; for now new row starts empty
+      // Focus after render at the join point (end of old prevRow)
+      pendingFocus.current = {
+        rowId: prevRow.id,
+        textLen: prevRow.text.length,
       };
 
       const next = [...prev];
-      next[index] = { ...row, text: before };
-      next.splice(index + 1, 0, newRow);
+      next[index - 1] = { ...prevRow, text: mergedText, grid: mergedGrid };
 
-      // focus new row on next tick
-      setTimeout(() => {
-        const input = inputRefs.current[newRowId];
-        input?.focus();
-      }, 0);
+      // For now, chords stay on their own rows; we’re not defining merge rules yet.
+      // If you DO want to merge chords later, we can decide how charIndex should offset.
+      next.splice(index, 1);
 
       return next;
     });
@@ -216,7 +233,11 @@ export default function SongScreen() {
           onPress={() => router.back()}
           style={[
             styles.backButton,
-            { backgroundColor: colors.primary, flexDirection: 'row', gap: 8 },
+            {
+              backgroundColor: colors.primary,
+              flexDirection: 'row',
+              gap: 8,
+            },
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.white} />
@@ -294,34 +315,33 @@ export default function SongScreen() {
                   }}
                   value={row.text}
                   multiline
-                  blurOnSubmit={false}
                   onSelectionChange={(e) => {
-                    selectionRef.current[row.id] = e.nativeEvent.selection;
+                    selectionByRow.current[row.id] = e.nativeEvent.selection;
                   }}
                   onKeyPress={(e) => {
-                    if (e.nativeEvent.key === 'Enter') {
-                      // prevent newline behavior; we’ll handle as row split
-                      splitRowAtCaret(row.id);
+                    if (e.nativeEvent.key !== 'Backspace') return;
+
+                    const sel = selectionByRow.current[row.id];
+                    const caretAtStart = sel
+                      ? sel.start === 0 && sel.end === 0
+                      : false;
+
+                    // Empty row: remove it (merge behavior is equivalent)
+                    if (row.text.length === 0) {
+                      mergeRowIntoPrev(row.id);
                       return;
                     }
 
-                    if (
-                      e.nativeEvent.key === 'Backspace' &&
-                      row.text.length === 0
-                    ) {
-                      removeRow(row.id);
+                    // Only merge non-empty row if caret is at the start
+                    if (caretAtStart) {
+                      mergeRowIntoPrev(row.id);
                     }
                   }}
                   onChangeText={(txt) => {
-                    // If any newline slips in (some keyboards), treat as split too.
-                    if (txt.includes('\n')) {
-                      splitRowAtCaret(row.id);
-                      return;
-                    }
-
+                    const grid = txt.split('');
                     setRows((prev) =>
                       prev.map((r) =>
-                        r.id === row.id ? { ...r, text: txt } : r,
+                        r.id === row.id ? { ...r, text: txt, grid } : r,
                       ),
                     );
                   }}
@@ -414,7 +434,9 @@ export default function SongScreen() {
                 }}
                 style={[
                   styles.addChordButton,
-                  { borderColor: colors.neutralMedium },
+                  {
+                    borderColor: colors.neutralMedium,
+                  },
                 ]}
               >
                 <Text style={{ fontSize: 16, color: colors.primary }}>
@@ -499,11 +521,6 @@ const styles = StyleSheet.create({
   },
   rowBlock: {
     marginBottom: 0,
-  },
-  chordDebugLine: {
-    fontFamily: 'OverpassMono',
-    fontSize: 16,
-    marginBottom: 2,
   },
   lyricLine: {
     padding: 0,
