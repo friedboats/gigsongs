@@ -52,9 +52,14 @@ export default function SongScreen() {
     },
     {
       id: 'row-2',
-      text: 'Tap here and type to edit these lyrics.',
-      grid: 'Tap here and type to edit these lyrics.'.split(''),
-      chords: [],
+      text: 'When the night is cold',
+      grid: 'When the night is cold'.split(''),
+      chords: [
+        { id: 'ci-1', typeId: 'chord-1', charIndex: 1 }, // G
+        { id: 'ci-2', typeId: 'chord-2', charIndex: 5 }, // C
+        { id: 'ci-3', typeId: 'chord-3', charIndex: 9 }, // D
+        { id: 'ci-4', typeId: 'chord-1', charIndex: 20 }, // G
+      ],
     },
     { id: 'row-3', text: '', grid: ''.split(''), chords: [] },
     {
@@ -83,38 +88,34 @@ export default function SongScreen() {
   const [isAddingChord, setIsAddingChord] = useState(false);
   const [newChordLabel, setNewChordLabel] = useState('');
 
-  // TEMP: Debug chord rendering for alignment testing
-  const renderDebugChordRow = (row: LyricRow) => {
-    // Hardcoded debug chords for visual testing
-    const debugChords = [
-      { label: 'G', charIndex: 1 },
-      { label: 'C', charIndex: 6 },
-      { label: 'F', charIndex: 9 },
-      { label: 'G', charIndex: 20 },
-    ];
+  const getChordLabel = (typeId: string) =>
+    chordPalette.find((c) => c.id === typeId)?.label ?? '?';
 
-    // If there are no chords, don't show a chord row
-    if (debugChords.length === 0) return null;
+  const renderChordRow = (row: LyricRow) => {
+    if (!row.chords || row.chords.length === 0) return null;
 
-    // Support chords before the lyric starts (negative index)
-    const minIndex = Math.min(0, ...debugChords.map((c) => c.charIndex));
+    // Support chords before lyric start (negative charIndex in the future)
+    const minIndex = Math.min(0, ...row.chords.map((c) => c.charIndex));
     const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
 
-    // Compute needed line length (allow chords past end of lyric)
     const lyricLen = row.grid.length;
+
     const chordEnd = Math.max(
       0,
-      ...debugChords.map((c) => offset + c.charIndex + c.label.length),
+      ...row.chords.map((c) => {
+        const label = getChordLabel(c.typeId);
+        return offset + c.charIndex + label.length;
+      }),
     );
+
     const lineLen = Math.max(lyricLen + offset, chordEnd);
 
-    // Build a monospace string line of spaces
     const chars = Array.from({ length: lineLen }, () => ' ');
 
-    // Place each chord label into the space array
-    debugChords.forEach(({ label, charIndex }) => {
-      const start = offset + charIndex;
-      if (start < 0) return;
+    // Place chord labels into the row
+    row.chords.forEach((chord) => {
+      const label = getChordLabel(chord.typeId);
+      const start = offset + chord.charIndex;
 
       label.split('').forEach((ch, i) => {
         const idx = start + i;
@@ -262,10 +263,7 @@ export default function SongScreen() {
           <View style={styles.lyricsWrapper}>
             {rows.map((row) => (
               <View key={row.id} style={styles.rowBlock}>
-                {/* {row.chords.length > 0 && (
-                  <View style={styles.chordRowPlaceholder} />
-                )} */}
-                {renderDebugChordRow(row)}
+                {renderChordRow(row)}
 
                 <TextInput
                   value={row.text}
