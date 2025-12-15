@@ -23,7 +23,6 @@ type ChordInstance = {
 type LyricRow = {
   id: string;
   text: string;
-  grid: string[];
   chords: ChordInstance[];
 };
 
@@ -42,36 +41,32 @@ export default function SongScreen() {
     [id],
   );
 
-  // Lyrics rows (always an array)
+  // Lyrics rows
   const [rows, setRows] = useState<LyricRow[]>([
     {
       id: 'row-1',
       text: 'This is a sample lyric line.',
-      grid: 'This is a sample lyric line.'.split(''),
       chords: [],
     },
     {
       id: 'row-2',
       text: 'When the night is cold',
-      grid: 'When the night is cold'.split(''),
       chords: [
         { id: 'ci-1', typeId: 'chord-1', charIndex: 1 }, // G
-        { id: 'ci-2', typeId: 'chord-2', charIndex: 5 }, // C
+        { id: 'ci-2', typeId: 'chord-2', charIndex: 5 }, // Cmaj
         { id: 'ci-3', typeId: 'chord-3', charIndex: 9 }, // D
         { id: 'ci-4', typeId: 'chord-1', charIndex: 20 }, // G
       ],
     },
-    { id: 'row-3', text: '', grid: ''.split(''), chords: [] },
+    { id: 'row-3', text: '', chords: [] },
     {
       id: 'row-4',
       text: 'Later, chords will appear above lyric rows.',
-      grid: 'Later, chords will appear above lyric rows.'.split(''),
       chords: [],
     },
     {
       id: 'row-5',
       text: 'But for now, this is just clean editable text.',
-      grid: 'But for now, this is just clean editable text.'.split(''),
       chords: [],
     },
   ]);
@@ -79,7 +74,7 @@ export default function SongScreen() {
   // Chord palette (types, not positions)
   const [chordPalette, setChordPalette] = useState<ChordType[]>([
     { id: 'chord-1', label: 'G' },
-    { id: 'chord-2', label: 'Cmaj7' },
+    { id: 'chord-2', label: 'Cmaj' },
     { id: 'chord-3', label: 'D' },
     { id: 'chord-4', label: 'Em' },
   ]);
@@ -94,11 +89,11 @@ export default function SongScreen() {
   const renderChordRow = (row: LyricRow) => {
     if (!row.chords || row.chords.length === 0) return null;
 
-    // Support chords before lyric start (negative charIndex in the future)
+    // Allow future negative charIndex (chords before lyric start)
     const minIndex = Math.min(0, ...row.chords.map((c) => c.charIndex));
     const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
 
-    const lyricLen = row.grid.length;
+    const lyricLen = row.text.length;
 
     const chordEnd = Math.max(
       0,
@@ -109,10 +104,8 @@ export default function SongScreen() {
     );
 
     const lineLen = Math.max(lyricLen + offset, chordEnd);
-
     const chars = Array.from({ length: lineLen }, () => ' ');
 
-    // Place chord labels into the row
     row.chords.forEach((chord) => {
       const label = getChordLabel(chord.typeId);
       const start = offset + chord.charIndex;
@@ -127,12 +120,12 @@ export default function SongScreen() {
 
     return (
       <Text
-        style={{
-          fontFamily: 'OverpassMono',
-          fontSize: 16,
-          color: 'green',
-          marginBottom: 2,
-        }}
+        style={[
+          styles.chordDebugLine,
+          {
+            color: 'green',
+          },
+        ]}
       >
         {chars.join('')}
       </Text>
@@ -176,6 +169,14 @@ export default function SongScreen() {
     setSelectedChordId((current) => (current === idToRemove ? null : current));
   };
 
+  const removeRow = (rowId: string) => {
+    setRows((prev) => {
+      const index = prev.findIndex((r) => r.id === rowId);
+      if (index <= 0) return prev; // don't delete first row
+      return prev.filter((r) => r.id !== rowId);
+    });
+  };
+
   if (!song) {
     return (
       <View style={styles.notFoundWrapper}>
@@ -195,7 +196,6 @@ export default function SongScreen() {
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.white} />
-
           <Text style={[styles.backButtonText, { color: colors.white }]}>
             Back
           </Text>
@@ -206,6 +206,7 @@ export default function SongScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.white }}>
+      {/* Header */}
       <View
         style={{
           flexDirection: 'row',
@@ -228,7 +229,6 @@ export default function SongScreen() {
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.primary} />
-
           <Text style={[styles.backButtonText, { color: colors.primary }]}>
             Back
           </Text>
@@ -252,9 +252,8 @@ export default function SongScreen() {
         <ThemeToggleButton />
       </View>
 
-      {/* Body: lyrics area + bottom chord palette */}
+      {/* Body */}
       <View style={styles.body}>
-        {/* Lyrics editor area */}
         <ScrollView
           style={styles.lyricsScroll}
           contentContainerStyle={styles.lyricsContainer}
@@ -268,12 +267,18 @@ export default function SongScreen() {
                 <TextInput
                   value={row.text}
                   multiline
+                  onKeyPress={(e) => {
+                    if (
+                      e.nativeEvent.key === 'Backspace' &&
+                      row.text.length === 0
+                    ) {
+                      removeRow(row.id);
+                    }
+                  }}
                   onChangeText={(txt) => {
-                    const grid = txt.split('');
-
                     setRows((prev) =>
                       prev.map((r) =>
-                        r.id === row.id ? { ...r, text: txt, grid } : r,
+                        r.id === row.id ? { ...r, text: txt } : r,
                       ),
                     );
                   }}
@@ -290,7 +295,7 @@ export default function SongScreen() {
           </View>
         </ScrollView>
 
-        {/* Bottom chord palette bar (Edit mode only for now) */}
+        {/* Bottom chord palette */}
         <View
           style={[
             styles.paletteBar,
@@ -323,9 +328,7 @@ export default function SongScreen() {
                     style={({ pressed }) => [
                       styles.chordPill,
                       {
-                        backgroundColor: isSelected
-                          ? colors.greenLight
-                          : colors.greenLight,
+                        backgroundColor: colors.greenLight,
                         opacity: pressed ? 0.8 : 1,
                         borderColor: isSelected
                           ? colors.primary
@@ -350,10 +353,7 @@ export default function SongScreen() {
                         style={styles.chordDeleteButton}
                       >
                         <Text
-                          style={{
-                            color: colors.neutralMedium,
-                            fontSize: 12,
-                          }}
+                          style={{ color: colors.neutralMedium, fontSize: 12 }}
                         >
                           ✕
                         </Text>
@@ -364,7 +364,6 @@ export default function SongScreen() {
               );
             })}
 
-            {/* Add chord UI */}
             {!isAddingChord ? (
               <Pressable
                 onPress={() => {
@@ -445,33 +444,30 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 18,
   },
+
   body: {
     flex: 1,
   },
   lyricsScroll: {
     flex: 1,
   },
-
   lyricsContainer: {
     paddingHorizontal: 40,
     paddingBottom: 80,
-    // backgroundColor: 'blue',
   },
-
   lyricsWrapper: {
     width: '100%',
-    // backgroundColor: 'yellow',
   },
-
   rowBlock: {
     marginBottom: 0,
   },
 
-  chordRowPlaceholder: {
-    height: 24,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
+  chordDebugLine: {
+    fontFamily: 'OverpassMono',
+    fontSize: 16,
+    marginBottom: 2,
   },
+
   lyricLine: {
     padding: 0,
     borderWidth: 0,
@@ -482,7 +478,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
   },
-  // Bottom chord palette
+
   paletteBar: {
     borderTopWidth: 1,
     paddingHorizontal: 24,
