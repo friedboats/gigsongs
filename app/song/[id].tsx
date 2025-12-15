@@ -4,7 +4,7 @@ import { mockSongs, type Song } from '@/src/data/songs';
 import { useAppTheme } from '@/src/theme/AppTheme';
 import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -31,6 +31,8 @@ type ChordType = {
   label: string;
 };
 
+const makeRowId = () => `row-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const router = useRouter();
@@ -41,13 +43,8 @@ export default function SongScreen() {
     [id],
   );
 
-  // Lyrics rows
   const [rows, setRows] = useState<LyricRow[]>([
-    {
-      id: 'row-1',
-      text: 'This is a sample lyric line.',
-      chords: [],
-    },
+    { id: 'row-1', text: 'This is a sample lyric line.', chords: [] },
     {
       id: 'row-2',
       text: 'When the night is cold',
@@ -71,7 +68,6 @@ export default function SongScreen() {
     },
   ]);
 
-  // Chord palette (types, not positions)
   const [chordPalette, setChordPalette] = useState<ChordType[]>([
     { id: 'chord-1', label: 'G' },
     { id: 'chord-2', label: 'Cmaj' },
@@ -83,13 +79,18 @@ export default function SongScreen() {
   const [isAddingChord, setIsAddingChord] = useState(false);
   const [newChordLabel, setNewChordLabel] = useState('');
 
+  // Refs for caret + focusing
+  const inputRefs = useRef<Record<string, TextInput | null>>({});
+  const selectionRef = useRef<Record<string, { start: number; end: number }>>(
+    {},
+  );
+
   const getChordLabel = (typeId: string) =>
     chordPalette.find((c) => c.id === typeId)?.label ?? '?';
 
   const renderChordRow = (row: LyricRow) => {
     if (!row.chords || row.chords.length === 0) return null;
 
-    // Allow future negative charIndex (chords before lyric start)
     const minIndex = Math.min(0, ...row.chords.map((c) => c.charIndex));
     const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
 
@@ -119,14 +120,7 @@ export default function SongScreen() {
     });
 
     return (
-      <Text
-        style={[
-          styles.chordDebugLine,
-          {
-            color: 'green',
-          },
-        ]}
-      >
+      <Text style={[styles.chordDebugLine, { color: 'green' }]}>
         {chars.join('')}
       </Text>
     );
@@ -149,12 +143,10 @@ export default function SongScreen() {
       return;
     }
 
-    const newChord: ChordType = {
-      id: `chord-${Date.now()}`,
-      label: trimmed,
-    };
-
-    setChordPalette((prev) => [...prev, newChord]);
+    setChordPalette((prev) => [
+      ...prev,
+      { id: `chord-${Date.now()}`, label: trimmed },
+    ]);
     setNewChordLabel('');
     setIsAddingChord(false);
   };
@@ -172,8 +164,44 @@ export default function SongScreen() {
   const removeRow = (rowId: string) => {
     setRows((prev) => {
       const index = prev.findIndex((r) => r.id === rowId);
-      if (index <= 0) return prev; // don't delete first row
+      if (index <= 0) return prev;
       return prev.filter((r) => r.id !== rowId);
+    });
+  };
+
+  const splitRowAtCaret = (rowId: string) => {
+    setRows((prev) => {
+      const index = prev.findIndex((r) => r.id === rowId);
+      if (index === -1) return prev;
+
+      const row = prev[index];
+      const sel = selectionRef.current[rowId] ?? {
+        start: row.text.length,
+        end: row.text.length,
+      };
+      const caret = Math.min(Math.max(sel.start, 0), row.text.length);
+
+      const before = row.text.slice(0, caret);
+      const after = row.text.slice(caret);
+
+      const newRowId = makeRowId();
+      const newRow: LyricRow = {
+        id: newRowId,
+        text: after,
+        chords: [], // TODO later: decide if chords should move/split; for now new row starts empty
+      };
+
+      const next = [...prev];
+      next[index] = { ...row, text: before };
+      next.splice(index + 1, 0, newRow);
+
+      // focus new row on next tick
+      setTimeout(() => {
+        const input = inputRefs.current[newRowId];
+        input?.focus();
+      }, 0);
+
+      return next;
     });
   };
 
@@ -188,11 +216,7 @@ export default function SongScreen() {
           onPress={() => router.back()}
           style={[
             styles.backButton,
-            {
-              backgroundColor: colors.primary,
-              flexDirection: 'row',
-              gap: 8,
-            },
+            { backgroundColor: colors.primary, flexDirection: 'row', gap: 8 },
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.white} />
@@ -265,9 +289,22 @@ export default function SongScreen() {
                 {renderChordRow(row)}
 
                 <TextInput
+                  ref={(el) => {
+                    inputRefs.current[row.id] = el;
+                  }}
                   value={row.text}
                   multiline
+                  blurOnSubmit={false}
+                  onSelectionChange={(e) => {
+                    selectionRef.current[row.id] = e.nativeEvent.selection;
+                  }}
                   onKeyPress={(e) => {
+                    if (e.nativeEvent.key === 'Enter') {
+                      // prevent newline behavior; we’ll handle as row split
+                      splitRowAtCaret(row.id);
+                      return;
+                    }
+
                     if (
                       e.nativeEvent.key === 'Backspace' &&
                       row.text.length === 0
@@ -276,6 +313,12 @@ export default function SongScreen() {
                     }
                   }}
                   onChangeText={(txt) => {
+                    // If any newline slips in (some keyboards), treat as split too.
+                    if (txt.includes('\n')) {
+                      splitRowAtCaret(row.id);
+                      return;
+                    }
+
                     setRows((prev) =>
                       prev.map((r) =>
                         r.id === row.id ? { ...r, text: txt } : r,
@@ -318,7 +361,6 @@ export default function SongScreen() {
                   <Pressable
                     onPress={() => handleToggleSelectChord(chord.id)}
                     onLongPress={() => {
-                      // Later: start drag from palette
                       console.log(
                         'Long-pressed chord type (ready for drag):',
                         chord,
@@ -372,9 +414,7 @@ export default function SongScreen() {
                 }}
                 style={[
                   styles.addChordButton,
-                  {
-                    borderColor: colors.neutralMedium,
-                  },
+                  { borderColor: colors.neutralMedium },
                 ]}
               >
                 <Text style={{ fontSize: 16, color: colors.primary }}>
@@ -444,7 +484,6 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 18,
   },
-
   body: {
     flex: 1,
   },
@@ -461,13 +500,11 @@ const styles = StyleSheet.create({
   rowBlock: {
     marginBottom: 0,
   },
-
   chordDebugLine: {
     fontFamily: 'OverpassMono',
     fontSize: 16,
     marginBottom: 2,
   },
-
   lyricLine: {
     padding: 0,
     borderWidth: 0,
@@ -478,7 +515,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 21,
   },
-
   paletteBar: {
     borderTopWidth: 1,
     paddingHorizontal: 24,
