@@ -74,7 +74,7 @@ export default function SongScreen() {
   // Chord palette (types, not positions)
   const [chordPalette, setChordPalette] = useState<ChordType[]>([
     { id: 'chord-1', label: 'G' },
-    { id: 'chord-2', label: 'C' },
+    { id: 'chord-2', label: 'Cmaj7' },
     { id: 'chord-3', label: 'D' },
     { id: 'chord-4', label: 'Em' },
   ]);
@@ -82,6 +82,61 @@ export default function SongScreen() {
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [isAddingChord, setIsAddingChord] = useState(false);
   const [newChordLabel, setNewChordLabel] = useState('');
+
+  // TEMP: Debug chord rendering for alignment testing
+  const renderDebugChordRow = (row: LyricRow) => {
+    // Hardcoded debug chords for visual testing
+    const debugChords = [
+      { label: 'G', charIndex: 1 },
+      { label: 'C', charIndex: 6 },
+      { label: 'F', charIndex: 9 },
+      { label: 'G', charIndex: 20 },
+    ];
+
+    // If there are no chords, don't show a chord row
+    if (debugChords.length === 0) return null;
+
+    // Support chords before the lyric starts (negative index)
+    const minIndex = Math.min(0, ...debugChords.map((c) => c.charIndex));
+    const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
+
+    // Compute needed line length (allow chords past end of lyric)
+    const lyricLen = row.grid.length;
+    const chordEnd = Math.max(
+      0,
+      ...debugChords.map((c) => offset + c.charIndex + c.label.length),
+    );
+    const lineLen = Math.max(lyricLen + offset, chordEnd);
+
+    // Build a monospace string line of spaces
+    const chars = Array.from({ length: lineLen }, () => ' ');
+
+    // Place each chord label into the space array
+    debugChords.forEach(({ label, charIndex }) => {
+      const start = offset + charIndex;
+      if (start < 0) return;
+
+      label.split('').forEach((ch, i) => {
+        const idx = start + i;
+        if (idx >= 0 && idx < chars.length) {
+          chars[idx] = ch;
+        }
+      });
+    });
+
+    return (
+      <Text
+        style={{
+          fontFamily: 'OverpassMono',
+          fontSize: 16,
+          color: 'green',
+          marginBottom: 2,
+        }}
+      >
+        {chars.join('')}
+      </Text>
+    );
+  };
 
   const handleToggleSelectChord = (id: string) => {
     setSelectedChordId((current) => (current === id ? null : id));
@@ -207,9 +262,10 @@ export default function SongScreen() {
           <View style={styles.lyricsWrapper}>
             {rows.map((row) => (
               <View key={row.id} style={styles.rowBlock}>
-                {row.chords.length > 0 && (
+                {/* {row.chords.length > 0 && (
                   <View style={styles.chordRowPlaceholder} />
-                )}
+                )} */}
+                {renderDebugChordRow(row)}
 
                 <TextInput
                   value={row.text}
