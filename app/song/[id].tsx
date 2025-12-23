@@ -6,6 +6,7 @@ import { textStyles } from '@/src/theme/styles';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,28 +15,242 @@ import {
   View,
 } from 'react-native';
 
-type ChordInstance = {
-  id: string;
-  typeId: string;
-  charIndex: number;
-};
-
-type LyricRow = {
-  id: string;
-  text: string;
-  grid: string[];
-  chords: ChordInstance[];
-};
-
 type ChordType = {
   id: string;
   label: string;
 };
 
-type ChordCursor = {
-  rowId: string;
-  pos: number; // absolute chord-lane position where cursor renders
+type EditorLayout = { x: number; y: number; width: number; height: number };
+
+type DragHover = {
+  line: number; // line index in text.split('\n')
+  col: number; // char column within that line
 } | null;
+
+type ActiveDrag = {
+  typeId: string;
+  label: string;
+  pageX: number;
+  pageY: number;
+} | null;
+
+type SelectedChordToken = {
+  lineIndex: number;
+  startCol: number;
+  endCol: number;
+  token: string;
+} | null;
+
+const uid = () => `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const FONT_FAMILY = 'OverpassMono';
+const FONT_SIZE = 16;
+
+// ✅ Keep your “perfect” original feel
+const LINE_HEIGHT = 21;
+
+// Visual caret indicator
+const CARET_WIDTH = 2;
+
+const EDITOR_PADDING_X = 12;
+const TEXT_PADDING_TOP = 12;
+
+const clamp = (v: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, v));
+
+function LibraryChordPill(props: {
+  typeId: string;
+  label: string;
+  colors: any;
+  onTap: () => void;
+  onDragStart: (
+    typeId: string,
+    label: string,
+    pageX: number,
+    pageY: number,
+  ) => void;
+  onDragMove: (pageX: number, pageY: number) => void;
+  onDragEnd: (didDrop: boolean, pageX: number, pageY: number) => void;
+}) {
+  const { typeId, label, colors, onTap, onDragStart, onDragMove, onDragEnd } =
+    props;
+
+  const isDraggingRef = useRef(false);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+
+        onPanResponderGrant: (evt) => {
+          isDraggingRef.current = false;
+          const { pageX, pageY } = evt.nativeEvent;
+          onDragStart(typeId, label, pageX, pageY);
+        },
+
+        onPanResponderMove: (_evt, g) => {
+          if (
+            !isDraggingRef.current &&
+            (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4)
+          ) {
+            isDraggingRef.current = true;
+          }
+          onDragMove(g.moveX, g.moveY);
+        },
+
+        onPanResponderRelease: (_evt, g) => {
+          const isTap = !isDraggingRef.current;
+          if (isTap) {
+            onTap();
+            onDragEnd(false, g.moveX, g.moveY);
+            return;
+          }
+          onDragEnd(true, g.moveX, g.moveY);
+        },
+
+        onPanResponderTerminate: (_evt, g) => {
+          onDragEnd(false, g.moveX, g.moveY);
+        },
+      }),
+    [label, onDragEnd, onDragMove, onDragStart, onTap, typeId],
+  );
+
+  return (
+    <View
+      {...panResponder.panHandlers}
+      style={[styles.chordPill, { backgroundColor: colors.greenLight }]}
+    >
+      <Text
+        style={{
+          fontFamily: FONT_FAMILY,
+          fontSize: 16,
+          color: colors.primary,
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Phase 1 rule:
+ * A chord line is blank OR contains only chord-ish tokens/spaces.
+ */
+function isChordLine(line: string) {
+  const stripped = line.replace(/\s/g, '');
+  if (stripped.length === 0) return true;
+  return /^[A-Ga-g0-9#b()\/+\-:._]+$/.test(stripped);
+}
+
+function padTo(line: string, col: number) {
+  if (line.length >= col) return line;
+  return line + ' '.repeat(col - line.length);
+}
+
+/**
+ * Replace characters in [col, col+len) with spaces (then trim right).
+ * Simple overlap rule for text-based chords.
+ */
+function clearOverlapOnChordLine(chordLine: string, col: number, len: number) {
+  const start = col;
+  const end = col + len;
+
+  const padded = padTo(chordLine, end);
+  const chars = padded.split('');
+  for (let i = start; i < end; i++) chars[i] = ' ';
+  return chars.join('').replace(/\s+$/g, '');
+}
+
+/**
+ * Ensure a chord line exists directly above a lyric line.
+ * Then place chord label at col (as actual text).
+ */
+function placeChordAsText(
+  fullText: string,
+  lyricLineIndex: number,
+  col: number,
+  chordLabel: string,
+) {
+  const lines = fullText.split('\n');
+  const len = chordLabel.length;
+
+  const hasChordLineAbove =
+    lyricLineIndex > 0 && isChordLine(lines[lyricLineIndex - 1] ?? '');
+
+  if (!hasChordLineAbove) {
+    // Insert blank chord line above this lyric line
+    lines.splice(lyricLineIndex, 0, '');
+  }
+
+  const chordIdx = hasChordLineAbove ? lyricLineIndex - 1 : lyricLineIndex;
+  const currentChordLine = lines[chordIdx] ?? '';
+
+  const cleared = clearOverlapOnChordLine(currentChordLine, col, len);
+
+  const padded = padTo(cleared, col);
+  const base = padded.split('');
+  const targetLen = Math.max(base.length, col + len);
+  while (base.length < targetLen) base.push(' ');
+
+  chordLabel.split('').forEach((ch, i) => {
+    base[col + i] = ch;
+  });
+
+  lines[chordIdx] = base.join('').replace(/\s+$/g, '');
+
+  return lines.join('\n');
+}
+
+// ----- tap-to-delete chord token helpers (Step 1) -----
+
+function isChordChar(ch: string) {
+  return /[A-Ga-g0-9#b()\/+\-:._]/.test(ch);
+}
+
+function findChordTokenAt(line: string, col: number) {
+  if (col < 0 || col >= line.length) return null;
+  if (!isChordChar(line[col])) return null;
+
+  let start = col;
+  let end = col + 1;
+
+  while (start - 1 >= 0 && isChordChar(line[start - 1])) start--;
+  while (end < line.length && isChordChar(line[end])) end++;
+
+  const token = line.slice(start, end);
+  return { start, end, token };
+}
+
+function removeSpanOnLine(line: string, start: number, end: number) {
+  const chars = line.split('');
+  for (let i = start; i < end; i++) chars[i] = ' ';
+  return chars.join('').replace(/\s+$/g, '');
+}
+
+function getLineIndexAndColFromAbs(fullText: string, abs: number) {
+  const lines = fullText.split('\n');
+
+  let running = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length;
+    const lineStart = running;
+    const lineEnd = running + lineLen;
+
+    if (abs >= lineStart && abs <= lineEnd) {
+      return { lineIndex: i, col: abs - lineStart };
+    }
+
+    running = lineEnd + 1; // +1 for '\n'
+  }
+
+  return {
+    lineIndex: lines.length - 1,
+    col: lines[lines.length - 1]?.length ?? 0,
+  };
+}
 
 export default function SongScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -47,9 +262,16 @@ export default function SongScreen() {
     [id],
   );
 
+  const [text, setText] = useState(
+    song?.lyrics ?? 'Type lyrics here...\nDrag chords onto this text.',
+  );
+
+  const inputRef = useRef<TextInput | null>(null);
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+
   const [chordPalette, setChordPalette] = useState<ChordType[]>([
     { id: 'chord-1', label: 'G' },
-    { id: 'chord-2', label: 'Cmaj' },
+    { id: 'chord-2', label: 'Cmaj7' },
     { id: 'chord-3', label: 'D' },
     { id: 'chord-4', label: 'Em' },
   ]);
@@ -57,191 +279,99 @@ export default function SongScreen() {
   const getChordLabel = (typeId: string) =>
     chordPalette.find((c) => c.id === typeId)?.label ?? '?';
 
-  // Strong blank detection (whitespace + zero-width chars)
-  const normalizeText = (s: string) => s.replace(/[\s\u200B\uFEFF]/g, '');
-  const isRowBlank = (row: LyricRow) => normalizeText(row.text).length === 0;
+  const [selectedChordTypeId, setSelectedChordTypeId] = useState<string | null>(
+    null,
+  );
+  const [selectedChordLabel, setSelectedChordLabel] = useState<string | null>(
+    null,
+  );
 
-  const [rows, setRows] = useState<LyricRow[]>([
-    {
-      id: 'row-1',
-      text: 'This is a sample lyric line.',
-      grid: 'This is a sample lyric line.'.split(''),
-      chords: [],
-    },
-    {
-      id: 'row-2',
-      text: 'When the night is cold',
-      grid: 'When the night is cold'.split(''),
-      chords: [
-        { id: 'ci-r2-1', typeId: 'chord-1', charIndex: 0 }, // G
-        { id: 'ci-r2-2', typeId: 'chord-4', charIndex: 9 }, // Em
-        { id: 'ci-r2-3', typeId: 'chord-3', charIndex: 18 }, // D
-      ],
-    },
-    {
-      id: 'row-3',
-      text: '',
-      grid: [],
-      chords: [
-        { id: 'ci-r3-1', typeId: 'chord-2', charIndex: 0 }, // Cmaj
-        { id: 'ci-r3-2', typeId: 'chord-1', charIndex: 6 }, // G
-        { id: 'ci-r3-3', typeId: 'chord-3', charIndex: 12 }, // D
-      ],
-    },
-    {
-      id: 'row-4',
-      text: '', // blank lyric row under the chord line (scenario you care about)
-      grid: [],
-      chords: [],
-    },
-    {
-      id: 'row-5',
-      text: 'Later, chords will appear above lyric rows.',
-      grid: 'Later, chords will appear above lyric rows.'.split(''),
-      chords: [{ id: 'ci-r5-1', typeId: 'chord-2', charIndex: 6 }], // Cmaj
-    },
-    {
-      id: 'row-6',
-      text: 'But for now, this is just clean editable text.',
-      grid: 'But for now, this is just clean editable text.'.split(''),
-      chords: [],
-    },
-  ]);
-
-  const [armedChordTypeId, setArmedChordTypeId] = useState<string | null>(null);
   const [isAddingChord, setIsAddingChord] = useState(false);
   const [newChordLabel, setNewChordLabel] = useState('');
 
-  const isPlacingChord = !!armedChordTypeId;
+  // NEW: selected chord token within TEXT (tap-to-delete)
+  const [selectedChordToken, setSelectedChordToken] =
+    useState<SelectedChordToken>(null);
 
-  const inputRefs = useRef<Record<string, TextInput | null>>({});
-  const [selectionByRow, setSelectionByRow] = useState<
-    Record<string, { start: number; end: number }>
-  >({});
+  // Drag state
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
+  const [dragHover, setDragHover] = useState<DragHover>(null);
+  const dragHoverRef = useRef<DragHover>(null);
 
-  const [chordCursor, setChordCursor] = useState<ChordCursor>(null);
-  const [cursorBlinkOn, setCursorBlinkOn] = useState(true);
+  // Editor layout
+  const editorRef = useRef<View | null>(null);
+  const editorLayoutRef = useRef<EditorLayout | null>(null);
 
-  const lastBackspaceAtRef = useRef<number>(0);
+  // monospace char width estimate (measured)
+  const [charWidth, setCharWidth] = useState(9);
+
+  const remeasureEditor = () => {
+    editorRef.current?.measureInWindow?.((x, y, width, height) => {
+      editorLayoutRef.current = { x, y, width, height };
+    });
+  };
 
   useEffect(() => {
-    const t = setInterval(() => setCursorBlinkOn((v) => !v), 500);
-    return () => clearInterval(t);
+    const t = setTimeout(() => remeasureEditor(), 0);
+    return () => clearTimeout(t);
   }, []);
 
-  const findRowIndex = (rowId: string) => rows.findIndex((r) => r.id === rowId);
+  const computeHoverFromPageXY = (pageX: number, pageY: number): DragHover => {
+    const layout = editorLayoutRef.current;
+    if (!layout) return null;
 
-  const focusRowAt = (rowId: string, pos: number) => {
-    const row = rows.find((r) => r.id === rowId);
-    const el = inputRefs.current[rowId];
-    if (!row || !el) return;
+    const withinX = pageX >= layout.x && pageX <= layout.x + layout.width;
+    const withinY = pageY >= layout.y && pageY <= layout.y + layout.height;
+    if (!withinX || !withinY) return null;
 
-    const clamped = Math.max(0, Math.min(pos, row.text.length));
-    el.focus();
-    el.setNativeProps?.({ selection: { start: clamped, end: clamped } });
-    setSelectionByRow((p) => ({
-      ...p,
-      [rowId]: { start: clamped, end: clamped },
-    }));
-  };
+    const localX = pageX - layout.x - EDITOR_PADDING_X;
+    const localY = pageY - layout.y - TEXT_PADDING_TOP;
 
-  const focusRowAtEnd = (rowId: string) => {
-    const row = rows.find((r) => r.id === rowId);
-    const el = inputRefs.current[rowId];
-    if (!row || !el) return;
+    const lines = text.split('\n');
+    const lineCount = lines.length;
 
-    const end = row.text.length;
-    el.focus();
-    el.setNativeProps?.({ selection: { start: end, end } });
-    setSelectionByRow((p) => ({ ...p, [rowId]: { start: end, end } }));
-  };
-
-  const jumpToPrevRowEnd = (currentRowIndex: number) => {
-    const prevRow = currentRowIndex > 0 ? rows[currentRowIndex - 1] : null;
-    if (!prevRow) return;
-
-    setChordCursor(null);
-
-    setTimeout(() => {
-      focusRowAtEnd(prevRow.id);
-    }, 0);
-  };
-
-  const getRightmostChord = (row: LyricRow) => {
-    if (!row.chords.length) return null;
-
-    const chordsWithEnd = row.chords.map((c) => ({
-      chord: c,
-      end: c.charIndex + getChordLabel(c.typeId).length,
-    }));
-
-    chordsWithEnd.sort((a, b) => b.end - a.end);
-    return chordsWithEnd[0]!.chord;
-  };
-
-  const getChordEndPos = (ch: ChordInstance) =>
-    ch.charIndex + getChordLabel(ch.typeId).length;
-
-  const renderChordRow = (row: LyricRow) => {
-    if (!row.chords || row.chords.length === 0) return null;
-
-    const minIndex = Math.min(0, ...row.chords.map((c) => c.charIndex));
-    const offset = minIndex < 0 ? Math.abs(minIndex) : 0;
-
-    const lyricLen = row.grid.length;
-
-    const chordEnd = Math.max(
+    const line = clamp(
+      Math.floor(localY / LINE_HEIGHT),
       0,
-      ...row.chords.map(
-        (c) => offset + c.charIndex + getChordLabel(c.typeId).length,
-      ),
+      Math.max(0, lineCount - 1),
     );
+    const lineText = lines[line] ?? '';
 
-    const cursorEnd =
-      chordCursor?.rowId === row.id ? offset + chordCursor.pos + 1 : 0;
+    const col = clamp(Math.round(localX / charWidth), 0, lineText.length);
 
-    const lineLen = Math.max(lyricLen + offset, chordEnd, cursorEnd);
-    const chars = Array.from({ length: lineLen }, () => ' ');
-
-    row.chords.forEach((chord) => {
-      const label = getChordLabel(chord.typeId);
-      const start = offset + chord.charIndex;
-
-      label.split('').forEach((ch, i) => {
-        const idx = start + i;
-        if (idx >= 0 && idx < chars.length) chars[idx] = ch;
-      });
-    });
-
-    if (chordCursor?.rowId === row.id) {
-      const idx = offset + chordCursor.pos;
-      if (idx >= 0 && idx < chars.length) {
-        chars[idx] = cursorBlinkOn ? '|' : ' ';
-      }
-    }
-
-    return <Text style={styles.chordText}>{chars.join('')}</Text>;
+    return { line, col };
   };
 
-  const toggleArmedChord = (typeId: string) => {
-    setArmedChordTypeId((current) => (current === typeId ? null : typeId));
-    setIsAddingChord(false);
+  const updateDragHover = (pageX: number, pageY: number) => {
+    setActiveDrag((d) => (d ? { ...d, pageX, pageY } : d));
+    const hover = computeHoverFromPageXY(pageX, pageY);
+    if (hover) dragHoverRef.current = hover;
+    setDragHover(hover);
   };
 
-  const addChordInstanceToRow = (rowId: string, typeId: string) => {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r;
+  const dropChordIntoText = (typeId: string, hover: DragHover) => {
+    if (!hover) return;
 
-        const instance: ChordInstance = {
-          id: `ci-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          typeId,
-          charIndex: r.text.length,
-        };
+    const chordLabel = getChordLabel(typeId);
 
-        return { ...r, chords: [...r.chords, instance] };
-      }),
+    const lines = text.split('\n');
+    const droppedLineIsChord = isChordLine(lines[hover.line] ?? '');
+
+    const targetLyricLine = droppedLineIsChord
+      ? clamp(hover.line + 1, 0, lines.length - 1)
+      : hover.line;
+
+    const nextText = placeChordAsText(
+      text,
+      targetLyricLine,
+      hover.col,
+      chordLabel,
     );
+    setText(nextText);
+
+    setSelectedChordTypeId(null);
+    setSelectedChordLabel(null);
+    setSelectedChordToken(null);
   };
 
   const handleConfirmAddChord = () => {
@@ -257,12 +387,7 @@ export default function SongScreen() {
       return;
     }
 
-    const newChord: ChordType = {
-      id: `chord-${Date.now()}`,
-      label: trimmed,
-    };
-
-    setChordPalette((prev) => [...prev, newChord]);
+    setChordPalette((prev) => [...prev, { id: uid(), label: trimmed }]);
     setNewChordLabel('');
     setIsAddingChord(false);
   };
@@ -270,6 +395,119 @@ export default function SongScreen() {
   const handleCancelAddChord = () => {
     setNewChordLabel('');
     setIsAddingChord(false);
+  };
+
+  const deleteSelectedChordType = () => {
+    if (!selectedChordTypeId) return;
+
+    setChordPalette((prev) => prev.filter((c) => c.id !== selectedChordTypeId));
+
+    setSelectedChordTypeId(null);
+    setSelectedChordLabel(null);
+    setIsAddingChord(false);
+    setNewChordLabel('');
+  };
+
+  const deleteSelectedChordToken = () => {
+    if (!selectedChordToken) return;
+
+    const { lineIndex, startCol, endCol } = selectedChordToken;
+    const lines = text.split('\n');
+    const line = lines[lineIndex] ?? '';
+
+    lines[lineIndex] = removeSpanOnLine(line, startCol, endCol);
+    setText(lines.join('\n'));
+    setSelectedChordToken(null);
+  };
+
+  const onKeyPress = (e: any) => {
+    const key = e?.nativeEvent?.key;
+    if (key !== 'Backspace') return;
+    // Phase 1: plain text behavior (do not special-case)
+  };
+
+  const onEditorPressIn = () => {
+    // use current caret as "tap position"
+    const caret = selection.start;
+
+    const { lineIndex, col } = getLineIndexAndColFromAbs(text, caret);
+    const lines = text.split('\n');
+    const lineText = lines[lineIndex] ?? '';
+
+    // only chord line tokens are deletable via this UI
+    if (!isChordLine(lineText)) {
+      setSelectedChordToken(null);
+      return;
+    }
+
+    const info = findChordTokenAt(lineText, col);
+    if (!info) {
+      setSelectedChordToken(null);
+      return;
+    }
+
+    setSelectedChordToken({
+      lineIndex,
+      startCol: info.start,
+      endCol: info.end,
+      token: info.token,
+    });
+
+    // also clear palette selection UI
+    setSelectedChordTypeId(null);
+    setSelectedChordLabel(null);
+    setIsAddingChord(false);
+  };
+
+  const renderDragCaret = () => {
+    if (!dragHover) return null;
+
+    const left = EDITOR_PADDING_X + dragHover.col * charWidth;
+    const top = TEXT_PADDING_TOP + dragHover.line * LINE_HEIGHT - 2;
+
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          styles.dropCaret,
+          {
+            left,
+            top,
+            height: LINE_HEIGHT + 10,
+            backgroundColor: colors.primary,
+          },
+        ]}
+      />
+    );
+  };
+
+  const renderDragGhost = () => {
+    if (!activeDrag) return null;
+
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          styles.dragGhost,
+          {
+            left: activeDrag.pageX - 20,
+            top: activeDrag.pageY - 18,
+            backgroundColor: colors.greenLight,
+            borderColor: colors.primary + '55',
+          },
+        ]}
+      >
+        <Text
+          style={{
+            fontFamily: FONT_FAMILY,
+            fontSize: 16,
+            color: colors.primary,
+          }}
+        >
+          {activeDrag.label}
+        </Text>
+      </View>
+    );
   };
 
   if (!song) {
@@ -283,11 +521,7 @@ export default function SongScreen() {
           onPress={() => router.back()}
           style={[
             styles.backButton,
-            {
-              backgroundColor: colors.primary,
-              flexDirection: 'row',
-              gap: 8,
-            },
+            { backgroundColor: colors.primary, flexDirection: 'row', gap: 8 },
           ]}
         >
           <ArrowLeftIcon width={18} height={18} color={colors.white} />
@@ -301,17 +535,10 @@ export default function SongScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.white }}>
+      {renderDragGhost()}
+
       {/* Header */}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: 40,
-          paddingVertical: 40,
-          width: '100%',
-        }}
-      >
+      <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
           style={[
@@ -347,198 +574,68 @@ export default function SongScreen() {
         <ThemeToggleButton />
       </View>
 
+      {/* Hidden monospace measurement */}
+      <View style={{ position: 'absolute', left: -9999, top: -9999 }}>
+        <Text
+          style={{ fontFamily: FONT_FAMILY, fontSize: FONT_SIZE }}
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            const per = w / 10;
+            if (per > 0) setCharWidth(per);
+          }}
+        >
+          MMMMMMMMMM
+        </Text>
+      </View>
+
       {/* Body */}
       <View style={styles.body}>
-        <ScrollView
-          style={styles.lyricsScroll}
-          contentContainerStyle={styles.lyricsContainer}
-          keyboardShouldPersistTaps="handled"
+        <View
+          ref={(node) => {
+            editorRef.current = node;
+            if (node) remeasureEditor();
+          }}
+          onLayout={remeasureEditor}
+          style={[
+            styles.editorShell,
+            {
+              borderColor: colors.neutralMedium + '55',
+              backgroundColor: colors.white,
+            },
+          ]}
         >
-          <View style={styles.lyricsWrapper}>
-            {rows.map((row) => {
-              const showDropZone = isPlacingChord || row.chords.length > 0;
-
-              return (
-                <View key={row.id} style={styles.rowBlock}>
-                  {showDropZone && (
-                    <Pressable
-                      onPress={() => {
-                        if (!armedChordTypeId) return;
-                        addChordInstanceToRow(row.id, armedChordTypeId);
-                      }}
-                      style={[
-                        styles.chordDropZone,
-                        {
-                          backgroundColor: isPlacingChord
-                            ? colors.greenLight + '55'
-                            : 'transparent',
-                          borderColor: isPlacingChord
-                            ? colors.primary + '33'
-                            : 'transparent',
-                        },
-                      ]}
-                    >
-                      {renderChordRow(row)}
-                    </Pressable>
-                  )}
-
-                  <TextInput
-                    ref={(el) => {
-                      inputRefs.current[row.id] = el;
-                    }}
-                    value={row.text}
-                    multiline
-                    onFocus={() => setChordCursor(null)}
-                    onSelectionChange={(e) => {
-                      const sel = e.nativeEvent.selection;
-                      setSelectionByRow((prev) => ({ ...prev, [row.id]: sel }));
-                    }}
-                    onKeyPress={(e) => {
-                      const key = e.nativeEvent.key;
-                      const sel = selectionByRow[row.id];
-                      const caret = sel ? sel.start : 0;
-                      const idx = findRowIndex(row.id);
-
-                      // Arrow nav (hardware keyboard)
-                      if (key === 'ArrowUp' && idx > 0) {
-                        // @ts-expect-error platform-specific
-                        e.preventDefault?.();
-                        focusRowAt(rows[idx - 1].id, caret);
-                        return;
-                      }
-                      if (key === 'ArrowDown' && idx < rows.length - 1) {
-                        // @ts-expect-error platform-specific
-                        e.preventDefault?.();
-                        focusRowAt(rows[idx + 1].id, caret);
-                        return;
-                      }
-
-                      if (key !== 'Backspace') return;
-
-                      const now = Date.now();
-                      if (now - lastBackspaceAtRef.current < 80) return;
-                      lastBackspaceAtRef.current = now;
-
-                      const caretAtStart = sel
-                        ? sel.start === 0 && sel.end === 0
-                        : caret === 0;
-                      if (!caretAtStart) return;
-
-                      const prevRow = idx > 0 ? rows[idx - 1] : null;
-
-                      // 0) If CURRENT row is blank + has no chords => DELETE IT FIRST.
-                      const currentIsBlankNoChords =
-                        isRowBlank(row) && row.chords.length === 0;
-
-                      if (currentIsBlankNoChords && idx > 0) {
-                        const focusId = rows[idx - 1].id;
-
-                        setChordCursor(null);
-                        setRows((prev) => prev.filter((r) => r.id !== row.id));
-
-                        setTimeout(() => {
-                          focusRowAtEnd(focusId);
-                        }, 0);
-
-                        return;
-                      }
-
-                      // Decide chord target row (only immediate prev row; we do NOT “skip over” empty rows)
-                      const targetChordRow =
-                        row.chords.length > 0
-                          ? row
-                          : prevRow &&
-                            isRowBlank(prevRow) &&
-                            prevRow.chords.length > 0
-                          ? prevRow
-                          : null;
-
-                      if (targetChordRow) {
-                        const rightmost = getRightmostChord(targetChordRow);
-                        if (!rightmost) return;
-
-                        const rightEnd = getChordEndPos(rightmost);
-
-                        const alreadyAtRightEdge =
-                          chordCursor?.rowId === targetChordRow.id &&
-                          chordCursor.pos === rightEnd;
-
-                        // First press: show cursor at right edge, no delete
-                        if (!alreadyAtRightEdge) {
-                          setChordCursor({
-                            rowId: targetChordRow.id,
-                            pos: rightEnd,
-                          });
-                          return;
-                        }
-
-                        // Second press: delete rightmost chord
-                        setRows((prev) =>
-                          prev.map((r) =>
-                            r.id === targetChordRow.id
-                              ? {
-                                  ...r,
-                                  chords: r.chords.filter(
-                                    (c) => c.id !== rightmost.id,
-                                  ),
-                                }
-                              : r,
-                          ),
-                        );
-
-                        const remaining = targetChordRow.chords.filter(
-                          (c) => c.id !== rightmost.id,
-                        );
-                        const next = remaining
-                          .map((c) => ({
-                            chord: c,
-                            end: c.charIndex + getChordLabel(c.typeId).length,
-                          }))
-                          .sort((a, b) => b.end - a.end)[0]?.chord;
-
-                        setChordCursor(
-                          next
-                            ? {
-                                rowId: targetChordRow.id,
-                                pos:
-                                  next.charIndex +
-                                  getChordLabel(next.typeId).length,
-                              }
-                            : null,
-                        );
-
-                        return;
-                      }
-
-                      // No chord mode => jump to end of previous row.
-                      // If previous row is blank, you land there (and you can delete it next press).
-                      if (prevRow) {
-                        jumpToPrevRowEnd(idx);
-                        return;
-                      }
-                    }}
-                    onChangeText={(txt) => {
-                      setChordCursor(null);
-                      const grid = txt.split('');
-                      setRows((prev) =>
-                        prev.map((r) =>
-                          r.id === row.id ? { ...r, text: txt, grid } : r,
-                        ),
-                      );
-                    }}
-                    style={[styles.lyricLine, { color: colors.neutral }]}
-                    placeholder=""
-                    placeholderTextColor={colors.neutralMedium}
-                    underlineColorAndroid="transparent"
-                    autoCapitalize="sentences"
-                    autoCorrect
-                    textAlignVertical="top"
-                  />
-                </View>
-              );
-            })}
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            {renderDragCaret()}
           </View>
-        </ScrollView>
+
+          <TextInput
+            ref={inputRef}
+            value={text}
+            onChangeText={(t) => {
+              setText(t);
+              // if user edits, clear selected token (safe)
+              setSelectedChordToken(null);
+            }}
+            multiline
+            style={[
+              styles.editorInput,
+              {
+                color: colors.neutral,
+                paddingLeft: EDITOR_PADDING_X,
+                paddingRight: EDITOR_PADDING_X,
+                paddingTop: TEXT_PADDING_TOP,
+              },
+            ]}
+            placeholder="Type lyrics..."
+            placeholderTextColor={colors.neutralMedium}
+            textAlignVertical="top"
+            autoCapitalize="sentences"
+            autoCorrect
+            onSelectionChange={(e) => setSelection(e.nativeEvent.selection)}
+            onKeyPress={onKeyPress}
+            onPressIn={onEditorPressIn}
+          />
+        </View>
 
         {/* Bottom chord palette */}
         <View
@@ -550,111 +647,162 @@ export default function SongScreen() {
             },
           ]}
         >
-          {isPlacingChord && (
-            <Text style={{ color: colors.neutralMedium, marginBottom: 8 }}>
-              Tap above a lyric line to place {getChordLabel(armedChordTypeId!)}
-              . Tap it again to cancel.
-            </Text>
-          )}
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.paletteContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            {chordPalette.map((chord) => {
-              const isArmed = armedChordTypeId === chord.id;
-
-              return (
-                <View key={chord.id} style={styles.chordPillWrapper}>
-                  <Pressable
-                    onPress={() => toggleArmedChord(chord.id)}
-                    delayLongPress={150}
-                    style={({ pressed }) => [
-                      styles.chordPill,
-                      {
-                        backgroundColor: colors.greenLight,
-                        opacity: pressed ? 0.8 : 1,
-                        borderColor: isArmed ? colors.primary : 'transparent',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: colors.primary,
-                        fontSize: 16,
-                        fontFamily: 'OverpassMono',
-                      }}
-                    >
-                      {chord.label}
-                    </Text>
-                  </Pressable>
-                </View>
-              );
-            })}
-
-            {!isAddingChord ? (
+          {/* 1) If chord token selected in TEXT -> show delete */}
+          {selectedChordToken && (
+            <View style={styles.actionRow}>
               <Pressable
-                onPress={() => {
-                  setArmedChordTypeId(null);
-                  setIsAddingChord(true);
-                }}
+                onPress={deleteSelectedChordToken}
+                style={[styles.actionButton, { borderColor: colors.primary }]}
+              >
+                <Text style={{ color: colors.primary, fontSize: 16 }}>
+                  Delete “{selectedChordToken.token}”
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setSelectedChordToken(null)}
                 style={[
-                  styles.addChordButton,
+                  styles.actionButton,
                   { borderColor: colors.neutralMedium },
                 ]}
               >
-                <Text style={{ fontSize: 16, color: colors.primary }}>
-                  + Add chord
+                <Text style={{ color: colors.neutral, fontSize: 16 }}>
+                  Done
                 </Text>
               </Pressable>
-            ) : (
-              <View style={styles.addChordRow}>
-                <TextInput
-                  value={newChordLabel}
-                  onChangeText={setNewChordLabel}
-                  placeholder="e.g. G, Gmaj7"
-                  placeholderTextColor={colors.neutralMedium}
-                  style={[
-                    styles.addChordInput,
-                    {
-                      borderColor: colors.neutralMedium,
-                      color: colors.neutral,
-                    },
-                  ]}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  underlineColorAndroid="transparent"
+            </View>
+          )}
+
+          {/* 2) Else if chord type selected in library -> show delete */}
+          {!selectedChordToken && selectedChordTypeId && (
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={deleteSelectedChordType}
+                style={[styles.actionButton, { borderColor: colors.primary }]}
+              >
+                <Text style={{ color: colors.primary, fontSize: 16 }}>
+                  Delete “{selectedChordLabel ?? ''}”
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setSelectedChordTypeId(null);
+                  setSelectedChordLabel(null);
+                }}
+                style={[
+                  styles.actionButton,
+                  { borderColor: colors.neutralMedium },
+                ]}
+              >
+                <Text style={{ color: colors.neutral, fontSize: 16 }}>
+                  Done
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* 3) Normal palette UI */}
+          {!selectedChordToken && !selectedChordTypeId && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.paletteContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {chordPalette.map((chord) => (
+                <LibraryChordPill
+                  key={chord.id}
+                  typeId={chord.id}
+                  label={chord.label}
+                  colors={colors}
+                  onTap={() => {
+                    setSelectedChordTypeId(chord.id);
+                    setSelectedChordLabel(chord.label);
+                    setIsAddingChord(false);
+                  }}
+                  onDragStart={(typeId, label, pageX, pageY) => {
+                    dragHoverRef.current = null;
+                    setActiveDrag({ typeId, label, pageX, pageY });
+
+                    // clear selections while dragging
+                    setSelectedChordToken(null);
+                    setSelectedChordTypeId(null);
+                    setSelectedChordLabel(null);
+
+                    updateDragHover(pageX, pageY);
+                  }}
+                  onDragMove={(pageX, pageY) => updateDragHover(pageX, pageY)}
+                  onDragEnd={(didDrop, _pageX, _pageY) => {
+                    if (didDrop) {
+                      const hover = dragHoverRef.current;
+                      if (hover) dropChordIntoText(chord.id, hover);
+                    }
+                    setActiveDrag(null);
+                    setDragHover(null);
+                    dragHoverRef.current = null;
+                  }}
                 />
+              ))}
 
+              {!isAddingChord ? (
                 <Pressable
-                  onPress={handleConfirmAddChord}
-                  hitSlop={6}
-                  style={styles.addChordAction}
+                  onPress={() => setIsAddingChord(true)}
+                  style={[
+                    styles.addChordButton,
+                    { borderColor: colors.neutralMedium },
+                  ]}
                 >
-                  <Text style={{ fontSize: 18, color: colors.primary }}>✓</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={handleCancelAddChord}
-                  hitSlop={6}
-                  style={styles.addChordAction}
-                >
-                  <Text style={{ fontSize: 18, color: colors.neutralMedium }}>
-                    ✕
+                  <Text style={{ fontSize: 16, color: colors.primary }}>
+                    + Add chord
                   </Text>
                 </Pressable>
-              </View>
-            )}
-          </ScrollView>
+              ) : (
+                <View style={styles.addChordRow}>
+                  <TextInput
+                    value={newChordLabel}
+                    onChangeText={setNewChordLabel}
+                    placeholder="e.g. Gmaj7"
+                    placeholderTextColor={colors.neutralMedium}
+                    style={[
+                      styles.addChordInput,
+                      {
+                        borderColor: colors.neutralMedium,
+                        color: colors.neutral,
+                      },
+                    ]}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    underlineColorAndroid="transparent"
+                  />
+
+                  <Pressable
+                    onPress={handleConfirmAddChord}
+                    hitSlop={6}
+                    style={styles.addChordAction}
+                  >
+                    <Text style={{ fontSize: 18, color: colors.primary }}>
+                      ✓
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={handleCancelAddChord}
+                    hitSlop={6}
+                    style={styles.addChordAction}
+                  >
+                    <Text style={{ fontSize: 18, color: colors.neutralMedium }}>
+                      ✕
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+            </ScrollView>
+          )}
         </View>
       </View>
     </View>
   );
 }
-
-const LINE_HEIGHT = 21;
 
 const styles = StyleSheet.create({
   notFoundWrapper: {
@@ -664,87 +812,81 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingVertical: 40,
   },
-  backButton: {
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 8,
+    paddingVertical: 20,
+    width: '100%',
+  },
+  backButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    fontSize: 18,
-  },
-  body: {
-    flex: 1,
-  },
-  lyricsScroll: {
-    flex: 1,
-  },
-  lyricsContainer: {
-    paddingHorizontal: 40,
-    paddingBottom: 80,
-  },
-  lyricsWrapper: {
-    width: '100%',
-  },
+  backButtonText: { fontSize: 18 },
 
-  // ✅ ensures blank rows have a visible line to focus into
-  rowBlock: {
-    marginBottom: 0,
-    minHeight: LINE_HEIGHT,
-  },
+  body: { flex: 1, paddingHorizontal: 24, paddingBottom: 18 },
 
-  chordDropZone: {
-    minHeight: 22,
-    justifyContent: 'center',
+  editorShell: {
     borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 2,
-    marginBottom: 2,
-  },
-  chordText: {
-    fontFamily: 'OverpassMono',
-    fontSize: 16,
-    color: 'green',
+    borderRadius: 12,
+    overflow: 'hidden',
+    flex: 1,
+    position: 'relative',
   },
 
-  // ✅ ensures blank TextInput still shows a caret line
-  lyricLine: {
-    padding: 0,
-    borderWidth: 0,
-    includeFontPadding: false,
-    textAlign: 'left',
-    backgroundColor: 'transparent',
-    fontFamily: 'OverpassMono',
-    fontSize: 16,
+  editorInput: {
+    flex: 1,
+    paddingBottom: 12,
+    fontFamily: FONT_FAMILY,
+    fontSize: FONT_SIZE,
     lineHeight: LINE_HEIGHT,
-    minHeight: LINE_HEIGHT,
+    minHeight: 220,
+  },
+
+  dropCaret: {
+    position: 'absolute',
+    width: CARET_WIDTH,
+    borderRadius: 2,
+    opacity: 0.95,
+  },
+
+  dragGhost: {
+    position: 'absolute',
+    zIndex: 9999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    opacity: 0.95,
   },
 
   paletteBar: {
     borderTopWidth: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingTop: 12,
+    marginTop: 12,
   },
   paletteContent: {
     alignItems: 'center',
     gap: 8,
   },
-  chordPillWrapper: {
-    marginRight: 8,
-  },
+
   chordPill: {
     borderRadius: 999,
+    borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginRight: 8,
   },
+
   addChordButton: {
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -759,13 +901,25 @@ const styles = StyleSheet.create({
   addChordInput: {
     minWidth: 140,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 8,
     fontSize: 16,
   },
   addChordAction: {
     paddingHorizontal: 6,
     paddingVertical: 4,
+  },
+
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  actionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
   },
 });
