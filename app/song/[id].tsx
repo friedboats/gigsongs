@@ -22,7 +22,8 @@ type EditorLayout = { x: number; y: number; width: number; height: number };
 type DragHover = { line: number; col: number } | null;
 
 type ActiveDrag = {
-  typeId: string;
+  source: 'palette' | 'existing';
+  typeId?: string;
   label: string;
   pageX: number;
   pageY: number;
@@ -33,6 +34,11 @@ type SelectedChordToken = {
   startCol: number;
   endCol: number;
   token: string;
+} | null;
+
+type ExistingDragState = {
+  token: string;
+  textBeforeDrag: string;
 } | null;
 
 const uid = () => `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -56,14 +62,18 @@ const makeChordLine = () => CHORD_MARK;
 const clamp = (v: number, min: number, max: number) =>
   Math.max(min, Math.min(max, v));
 
+/**
+ * Token chars inside a chord line (supports: maj, min, dim, sus, add, aug, etc.)
+ */
 function isChordChar(ch: string) {
-  // Token chars inside a chord line (supports: maj, min, dim, sus, add, aug, etc.)
   return /[A-Za-z0-9#b()\/+\-:._]/.test(ch);
 }
 
+/**
+ * ✅ ONLY marked lines are chord lines.
+ * This prevents lyric text from being misclassified.
+ */
 function isChordLine(line: string) {
-  // ✅ ONLY marked lines are chord lines.
-  // This prevents lyric text from being misclassified, now that token chars include letters.
   return hasChordMark(line);
 }
 
@@ -118,7 +128,7 @@ function clearOverlappingChordTokens(
   return chars.join('').replace(/\s+$/g, '');
 }
 
-function findChordTokenAt(line: string, col: number) {
+function findChordTokenAtChordLine(line: string, col: number) {
   const content = stripChordMark(line);
 
   if (col < 0 || col >= content.length) return null;
@@ -172,13 +182,11 @@ function normalizeChordStacks(fullText: string) {
     }
 
     if (nextLine === null) {
-      // trailing chord junk -> keep one
       const last = chordGroup[chordGroup.length - 1] ?? makeChordLine();
       out.push(last);
       break;
     }
 
-    // merge into one line (bottom-most base; upper fills spaces)
     let merged = stripChordMark(chordGroup[chordGroup.length - 1] ?? '');
     for (let k = chordGroup.length - 2; k >= 0; k--) {
       const upper = stripChordMark(chordGroup[k] ?? '');
@@ -193,7 +201,7 @@ function normalizeChordStacks(fullText: string) {
 
     out.push(CHORD_MARK + merged);
     out.push(nextLine);
-    i++; // consume lyric line
+    i++;
   }
 
   return out.join('\n');
@@ -218,11 +226,9 @@ function placeChordAtDrop(
   const safeHover = clamp(hoverLine, 0, Math.max(0, lines.length - 1));
   const hoverIsChord = isChordLine(lines[safeHover] ?? '');
 
-  // Decide lyric line index
   let lyricLineIndex = hoverIsChord ? safeHover + 1 : safeHover;
   if (lyricLineIndex >= lines.length) lines.push('');
 
-  // Ensure chord line directly above lyric line
   let chordLineIndex = lyricLineIndex - 1;
   const chordLineExists =
     chordLineIndex >= 0 && isChordLine(lines[chordLineIndex] ?? '');
@@ -231,12 +237,6 @@ function placeChordAtDrop(
     lines.splice(lyricLineIndex, 0, makeChordLine());
     chordLineIndex = lyricLineIndex;
     lyricLineIndex += 1;
-  } else {
-    // If it’s chord-ish but not marked, mark it (stabilizes future checks)
-    if (!hasChordMark(lines[chordLineIndex] ?? '')) {
-      lines[chordLineIndex] =
-        CHORD_MARK + stripChordMark(lines[chordLineIndex] ?? '');
-    }
   }
 
   const current = lines[chordLineIndex] ?? makeChordLine();
@@ -258,27 +258,34 @@ function placeChordAtDrop(
   return normalizeChordStacks(lines.join('\n'));
 }
 
-function getLineIndexAndColFromAbs(fullText: string, abs: number) {
+/**
+ * If a marked chord line becomes marker-only (empty content), remove it (collapse lyric line up).
+ */
+function collapseEmptyChordLines(fullText: string) {
   const lines = fullText.split('\n');
+  const out: string[] = [];
 
-  let running = 0;
   for (let i = 0; i < lines.length; i++) {
-    const lineLen = lines[i].length;
-    const lineStart = running;
-    const lineEnd = running + lineLen;
-
-    if (abs >= lineStart && abs <= lineEnd) {
-      return { lineIndex: i, col: abs - lineStart };
+    const line = lines[i] ?? '';
+    if (hasChordMark(line)) {
+      const content = stripChordMark(line).replace(/\s+$/g, '');
+      if (content.length === 0) {
+        continue; // drop this chord line
+      }
     }
-
-    running = lineEnd + 1;
+    out.push(line);
   }
 
-  return {
-    lineIndex: lines.length - 1,
-    col: lines[lines.length - 1]?.length ?? 0,
-  };
+  return out.join('\n');
 }
+
+// ✅ chord-slot guide overlay
+const MIN_CHORD_COLS = 60;
+
+const makeSlotGuideLine = (content: string, targetCols: number) => {
+  const padded = padTo(content, targetCols);
+  return padded.replace(/ /g, '·');
+};
 
 function LibraryChordPill(props: {
   typeId: string;
@@ -292,7 +299,7 @@ function LibraryChordPill(props: {
     pageY: number,
   ) => void;
   onDragMove: (pageX: number, pageY: number) => void;
-  onDragEnd: (didDrop: boolean, pageX: number, pageY: number) => void;
+  onDragEnd: (didDrop: boolean) => void;
 }) {
   const { typeId, label, colors, onTap, onDragStart, onDragMove, onDragEnd } =
     props;
@@ -322,18 +329,18 @@ function LibraryChordPill(props: {
           onDragMove(g.moveX, g.moveY);
         },
 
-        onPanResponderRelease: (_evt, g) => {
+        onPanResponderRelease: () => {
           const isTap = !isDraggingRef.current;
           if (isTap) {
             onTap();
-            onDragEnd(false, g.moveX, g.moveY);
+            onDragEnd(false);
             return;
           }
-          onDragEnd(true, g.moveX, g.moveY);
+          onDragEnd(true);
         },
 
-        onPanResponderTerminate: (_evt, g) => {
-          onDragEnd(false, g.moveX, g.moveY);
+        onPanResponderTerminate: () => {
+          onDragEnd(false);
         },
       }),
     [label, onDragEnd, onDragMove, onDragStart, onTap, typeId],
@@ -367,7 +374,6 @@ export default function SongScreen() {
     song?.lyrics ?? 'Type lyrics here...\nDrag chords onto this text.',
   );
 
-  const inputRef = useRef<TextInput | null>(null);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
 
   const [chordPalette, setChordPalette] = useState<ChordType[]>([
@@ -376,9 +382,6 @@ export default function SongScreen() {
     { id: 'chord-3', label: 'D' },
     { id: 'chord-4', label: 'Em' },
   ]);
-
-  const getChordLabel = (typeId: string) =>
-    chordPalette.find((c) => c.id === typeId)?.label ?? '?';
 
   const [selectedChordTypeId, setSelectedChordTypeId] = useState<string | null>(
     null,
@@ -397,10 +400,12 @@ export default function SongScreen() {
   const [dragHover, setDragHover] = useState<DragHover>(null);
   const dragHoverRef = useRef<DragHover>(null);
 
+  const existingDragRef = useRef<ExistingDragState>(null);
+
   const editorRef = useRef<View | null>(null);
   const editorLayoutRef = useRef<EditorLayout | null>(null);
 
-  // ✅ TextInput internal scroll offset (critical for stable hover mapping)
+  // ✅ TextInput internal scroll offset
   const textScrollYRef = useRef(0);
 
   const [charWidth, setCharWidth] = useState(9);
@@ -426,7 +431,6 @@ export default function SongScreen() {
 
     const localX = pageX - layout.x - EDITOR_PADDING_X;
 
-    // ✅ add internal scroll offset back into localY
     const localY =
       pageY - layout.y - TEXT_PADDING_TOP + (textScrollYRef.current || 0);
 
@@ -440,9 +444,11 @@ export default function SongScreen() {
     );
 
     const lineText = lines[line] ?? '';
-    const visualLen = stripChordMark(lineText).length;
+    const baseLen = stripChordMark(lineText).length;
+    const visualLen = isChordLine(lineText)
+      ? Math.max(baseLen, MIN_CHORD_COLS)
+      : baseLen;
 
-    // ✅ use floor (less boundary-jitter) with small bias
     const col = clamp(
       Math.floor((localX + 0.2 * charWidth) / charWidth),
       0,
@@ -459,18 +465,42 @@ export default function SongScreen() {
     setDragHover(hover);
   };
 
-  const dropChordIntoText = (typeId: string, hover: DragHover) => {
+  const dropChordLabelIntoText = (label: string, hover: DragHover) => {
     if (!hover) return;
-
-    const chordLabel = getChordLabel(typeId);
-
-    // Note: we place into chord-line content coordinates
-    const nextText = placeChordAtDrop(text, hover.line, hover.col, chordLabel);
-
+    const nextText = placeChordAtDrop(text, hover.line, hover.col, label);
     setText(nextText);
+
     setSelectedChordTypeId(null);
     setSelectedChordLabel(null);
     setSelectedChordToken(null);
+  };
+
+  // ✅ One finalizer used by every “end drag” path.
+  const finalizeDrag = () => {
+    const drag = activeDrag;
+    if (!drag) return;
+
+    const hover = dragHoverRef.current;
+
+    if (drag.source === 'existing') {
+      if (hover) {
+        dropChordLabelIntoText(drag.label, hover);
+      } else {
+        const snap = existingDragRef.current?.textBeforeDrag;
+        if (snap != null) setText(snap);
+      }
+      existingDragRef.current = null;
+    }
+
+    if (drag.source === 'palette') {
+      if (hover) {
+        dropChordLabelIntoText(drag.label, hover);
+      }
+    }
+
+    setActiveDrag(null);
+    setDragHover(null);
+    dragHoverRef.current = null;
   };
 
   const handleConfirmAddChord = () => {
@@ -518,26 +548,143 @@ export default function SongScreen() {
       endCol,
     );
 
-    setText(normalizeChordStacks(lines.join('\n')));
+    const cleaned = collapseEmptyChordLines(
+      normalizeChordStacks(lines.join('\n')),
+    );
+    setText(cleaned);
+
     setSelectedChordToken(null);
   };
 
+  // =========================
+  // ✅ Drag existing chord token (capture responder + global fallback)
+  // =========================
+  const editorPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (evt) => {
+          if (activeDrag) return false;
+          const { pageX, pageY } = evt.nativeEvent;
+
+          const hover = computeHoverFromPageXY(pageX, pageY);
+          if (!hover) return false;
+
+          const lines = text.split('\n');
+          const lineText = lines[hover.line] ?? '';
+          if (!isChordLine(lineText)) return false;
+
+          const tokenInfo = findChordTokenAtChordLine(lineText, hover.col);
+          return !!tokenInfo;
+        },
+
+        // ✅ capture helps prevent TextInput stealing the responder
+        onStartShouldSetPanResponderCapture: (evt) => {
+          if (activeDrag) return false;
+          const { pageX, pageY } = evt.nativeEvent;
+
+          const hover = computeHoverFromPageXY(pageX, pageY);
+          if (!hover) return false;
+
+          const lines = text.split('\n');
+          const lineText = lines[hover.line] ?? '';
+          if (!isChordLine(lineText)) return false;
+
+          const tokenInfo = findChordTokenAtChordLine(lineText, hover.col);
+          return !!tokenInfo;
+        },
+
+        onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+
+        onPanResponderTerminationRequest: () => false,
+
+        onPanResponderGrant: (evt) => {
+          const { pageX, pageY } = evt.nativeEvent;
+          const hover = computeHoverFromPageXY(pageX, pageY);
+          if (!hover) return;
+
+          const lines = text.split('\n');
+          const lineText = lines[hover.line] ?? '';
+          if (!isChordLine(lineText)) return;
+
+          const tokenInfo = findChordTokenAtChordLine(lineText, hover.col);
+          if (!tokenInfo) return;
+
+          existingDragRef.current = {
+            token: tokenInfo.token,
+            textBeforeDrag: text,
+          };
+
+          // remove token immediately
+          lines[hover.line] = removeSpanOnLine(
+            lineText,
+            tokenInfo.start,
+            tokenInfo.end,
+          );
+          const removed = collapseEmptyChordLines(lines.join('\n'));
+          setText(removed);
+
+          dragHoverRef.current = null;
+          setActiveDrag({
+            source: 'existing',
+            label: tokenInfo.token,
+            pageX,
+            pageY,
+          });
+
+          updateDragHover(pageX, pageY);
+
+          setSelectedChordToken(null);
+          setSelectedChordTypeId(null);
+          setSelectedChordLabel(null);
+          setIsAddingChord(false);
+        },
+
+        onPanResponderMove: (_evt, g) => {
+          updateDragHover(g.moveX, g.moveY);
+        },
+
+        onPanResponderRelease: () => {
+          finalizeDrag();
+        },
+
+        onPanResponderTerminate: () => {
+          finalizeDrag();
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [text, activeDrag, charWidth],
+  );
+
+  // =========================
+
   const onEditorPressIn = () => {
     const caret = selection.start;
-
-    const { lineIndex, col } = getLineIndexAndColFromAbs(text, caret);
     const lines = text.split('\n');
-    const lineText = lines[lineIndex] ?? '';
 
+    let running = 0;
+    let lineIndex = 0;
+    let col = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const lineLen = lines[i].length;
+      const start = running;
+      const end = running + lineLen;
+      if (caret >= start && caret <= end) {
+        lineIndex = i;
+        col = caret - start;
+        break;
+      }
+      running = end + 1;
+    }
+
+    const lineText = lines[lineIndex] ?? '';
     if (!isChordLine(lineText)) {
       setSelectedChordToken(null);
       return;
     }
 
-    // Adjust col for chord mark being “invisible”
     const contentCol = hasChordMark(lineText) ? Math.max(0, col - 1) : col;
-
-    const info = findChordTokenAt(lineText, contentCol);
+    const info = findChordTokenAtChordLine(lineText, contentCol);
     if (!info) {
       setSelectedChordToken(null);
       return;
@@ -555,12 +702,52 @@ export default function SongScreen() {
     setIsAddingChord(false);
   };
 
+  const renderChordSlotGuides = () => {
+    if (!activeDrag) return null;
+
+    const lines = text.split('\n');
+
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          { paddingLeft: EDITOR_PADDING_X, paddingTop: TEXT_PADDING_TOP },
+        ]}
+      >
+        {lines.map((line, i) => {
+          if (!isChordLine(line)) return null;
+
+          const content = stripChordMark(line);
+          const cols = Math.max(content.length, MIN_CHORD_COLS);
+          const guide = makeSlotGuideLine(content, cols);
+
+          return (
+            <Text
+              key={`guide-${i}`}
+              style={{
+                position: 'absolute',
+                top: i * LINE_HEIGHT - (textScrollYRef.current || 0),
+                left: 0,
+                fontFamily: FONT_FAMILY,
+                fontSize: FONT_SIZE,
+                lineHeight: LINE_HEIGHT,
+                color: colors.neutralMedium + '55',
+              }}
+            >
+              {guide}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  };
+
   const renderDragCaret = () => {
     if (!dragHover) return null;
 
     const left = EDITOR_PADDING_X + dragHover.col * charWidth;
 
-    // caret top needs to reflect visible viewport => subtract internal scrollY
     const top =
       TEXT_PADDING_TOP +
       dragHover.line * LINE_HEIGHT -
@@ -636,7 +823,16 @@ export default function SongScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.white }}>
+    <View
+      style={{ flex: 1, backgroundColor: colors.white }}
+      // ✅ fallback: if TextInput steals responder, still end drag + clear ghost
+      onTouchEndCapture={() => {
+        if (activeDrag) finalizeDrag();
+      }}
+      onTouchCancelCapture={() => {
+        if (activeDrag) finalizeDrag();
+      }}
+    >
       {renderDragGhost()}
 
       <View style={styles.header}>
@@ -703,15 +899,15 @@ export default function SongScreen() {
               backgroundColor: colors.white,
             },
           ]}
+          {...editorPanResponder.panHandlers}
         >
           <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
             {renderDragCaret()}
           </View>
 
+          {renderChordSlotGuides()}
+
           <TextInput
-            ref={(el) => {
-              inputRef.current = el;
-            }}
             value={text}
             onChangeText={(t) => {
               setText(t);
@@ -824,7 +1020,14 @@ export default function SongScreen() {
                   }}
                   onDragStart={(typeId, label, pageX, pageY) => {
                     dragHoverRef.current = null;
-                    setActiveDrag({ typeId, label, pageX, pageY });
+
+                    setActiveDrag({
+                      source: 'palette',
+                      typeId,
+                      label,
+                      pageX,
+                      pageY,
+                    });
 
                     setSelectedChordToken(null);
                     setSelectedChordTypeId(null);
@@ -833,14 +1036,8 @@ export default function SongScreen() {
                     updateDragHover(pageX, pageY);
                   }}
                   onDragMove={(pageX, pageY) => updateDragHover(pageX, pageY)}
-                  onDragEnd={(didDrop) => {
-                    if (didDrop) {
-                      const hover = dragHoverRef.current;
-                      if (hover) dropChordIntoText(chord.id, hover);
-                    }
-                    setActiveDrag(null);
-                    setDragHover(null);
-                    dragHoverRef.current = null;
+                  onDragEnd={() => {
+                    finalizeDrag();
                   }}
                 />
               ))}
