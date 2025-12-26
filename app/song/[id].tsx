@@ -156,63 +156,20 @@ function removeSpanOnLine(line: string, start: number, end: number) {
 }
 
 /**
- * ✅ Normalize: ensure at most ONE chord line directly above each lyric line.
- * Merge stacked chord lines into a single marked chord line.
+ * ✅ IMPORTANT CHANGE:
+ * We do NOT merge chord stacks anymore.
+ * Intro chords can be multiple consecutive chord lines.
  */
 function normalizeChordStacks(fullText: string) {
-  const lines = fullText.split('\n');
-  const out: string[] = [];
-
-  let i = 0;
-  while (i < lines.length) {
-    const chordGroup: string[] = [];
-    while (i < lines.length && isChordLine(lines[i] ?? '')) {
-      chordGroup.push(lines[i] ?? '');
-      i++;
-    }
-
-    const nextLine = i < lines.length ? lines[i] ?? '' : null;
-
-    if (chordGroup.length === 0) {
-      if (nextLine !== null) {
-        out.push(nextLine);
-        i++;
-      }
-      continue;
-    }
-
-    if (nextLine === null) {
-      const last = chordGroup[chordGroup.length - 1] ?? makeChordLine();
-      out.push(last);
-      break;
-    }
-
-    let merged = stripChordMark(chordGroup[chordGroup.length - 1] ?? '');
-    for (let k = chordGroup.length - 2; k >= 0; k--) {
-      const upper = stripChordMark(chordGroup[k] ?? '');
-      const maxLen = Math.max(upper.length, merged.length);
-      const u = padTo(upper, maxLen).split('');
-      const m = padTo(merged, maxLen).split('');
-      for (let c = 0; c < maxLen; c++) {
-        if (m[c] === ' ' && isChordChar(u[c])) m[c] = u[c];
-      }
-      merged = m.join('').replace(/\s+$/g, '');
-    }
-
-    out.push(CHORD_MARK + merged);
-    out.push(nextLine);
-    i++;
-  }
-
-  return out.join('\n');
+  return fullText;
 }
 
 /**
  * ✅ Deterministic drop model:
- * - Choose lyric line (if hovering a chord line, lyric is line below)
- * - Ensure chord line directly above lyric (marked, even if empty)
+ * - If dropping onto a totally blank lyric line, convert that line into a chord line (no insert above)
+ * - If hovering a chord line, lyric is below
+ * - Otherwise ensure chord line directly above lyric
  * - Clear any chord token touched, then place new chord
- * - Normalize stacks after
  */
 function placeChordAtDrop(
   fullText: string,
@@ -224,8 +181,31 @@ function placeChordAtDrop(
   const len = chordLabel.length;
 
   const safeHover = clamp(hoverLine, 0, Math.max(0, lines.length - 1));
-  const hoverIsChord = isChordLine(lines[safeHover] ?? '');
+  const hoverLineText = lines[safeHover] ?? '';
+  const hoverIsChord = isChordLine(hoverLineText);
 
+  // ✅ If dropping onto a blank lyric line, convert THIS line into a chord line (intro-friendly)
+  const hoverIsBlankLyricLine =
+    !hoverIsChord && stripChordMark(hoverLineText).trim().length === 0;
+
+  if (hoverIsBlankLyricLine) {
+    const content = ''; // empty chord lane
+    const cleared = clearOverlappingChordTokens(content, col, len);
+
+    const padded = padTo(cleared, col);
+    const base = padded.split('');
+    const targetLen = Math.max(base.length, col + len);
+    while (base.length < targetLen) base.push(' ');
+
+    chordLabel.split('').forEach((ch, i) => {
+      base[col + i] = ch;
+    });
+
+    lines[safeHover] = CHORD_MARK + base.join('').replace(/\s+$/g, '');
+    return normalizeChordStacks(lines.join('\n'));
+  }
+
+  // Normal behavior: place chord above lyric line
   let lyricLineIndex = hoverIsChord ? safeHover + 1 : safeHover;
   if (lyricLineIndex >= lines.length) lines.push('');
 
@@ -278,14 +258,6 @@ function collapseEmptyChordLines(fullText: string) {
 
   return out.join('\n');
 }
-
-// ✅ chord-slot guide overlay
-const MIN_CHORD_COLS = 60;
-
-const makeSlotGuideLine = (content: string, targetCols: number) => {
-  const padded = padTo(content, targetCols);
-  return padded.replace(/ /g, '·');
-};
 
 function LibraryChordPill(props: {
   typeId: string;
@@ -421,6 +393,13 @@ export default function SongScreen() {
     return () => clearTimeout(t);
   }, []);
 
+  const MIN_CHORD_COLS = 60;
+
+  const makeSlotGuideLine = (content: string, targetCols: number) => {
+    const padded = padTo(content, targetCols);
+    return padded.replace(/ /g, '·');
+  };
+
   const computeHoverFromPageXY = (pageX: number, pageY: number): DragHover => {
     const layout = editorLayoutRef.current;
     if (!layout) return null;
@@ -444,10 +423,10 @@ export default function SongScreen() {
     );
 
     const lineText = lines[line] ?? '';
-    const baseLen = stripChordMark(lineText).length;
-    const visualLen = isChordLine(lineText)
-      ? Math.max(baseLen, MIN_CHORD_COLS)
-      : baseLen;
+    const visualLen =
+      isChordLine(lineText) || stripChordMark(lineText).trim().length === 0
+        ? Math.max(stripChordMark(lineText).length, MIN_CHORD_COLS)
+        : stripChordMark(lineText).length;
 
     const col = clamp(
       Math.floor((localX + 0.2 * charWidth) / charWidth),
@@ -716,9 +695,10 @@ export default function SongScreen() {
         ]}
       >
         {lines.map((line, i) => {
-          if (!isChordLine(line)) return null;
+          const isBlankLine = stripChordMark(line).trim().length === 0;
+          if (!isChordLine(line) && !isBlankLine) return null;
 
-          const content = stripChordMark(line);
+          const content = isChordLine(line) ? stripChordMark(line) : '';
           const cols = Math.max(content.length, MIN_CHORD_COLS);
           const guide = makeSlotGuideLine(content, cols);
 
@@ -910,7 +890,22 @@ export default function SongScreen() {
           <TextInput
             value={text}
             onChangeText={(t) => {
-              setText(t);
+              // ✅ If user types into a chord line, convert it to lyric (strip marker)
+              const prevLines = text.split('\n');
+              const nextLines = t.split('\n');
+
+              for (let i = 0; i < nextLines.length; i++) {
+                const wasChord = isChordLine(prevLines[i] ?? '');
+                const now = nextLines[i] ?? '';
+                if (wasChord && hasChordMark(now)) {
+                  const content = stripChordMark(now);
+                  if (content.trim().length > 0) {
+                    nextLines[i] = content; // become lyric line
+                  }
+                }
+              }
+
+              setText(nextLines.join('\n'));
               setSelectedChordToken(null);
             }}
             multiline
@@ -1044,7 +1039,11 @@ export default function SongScreen() {
 
               {!isAddingChord ? (
                 <Pressable
-                  onPress={() => setIsAddingChord(true)}
+                  onPress={() => {
+                    setSelectedChordTypeId(null);
+                    setSelectedChordLabel(null);
+                    setIsAddingChord(true);
+                  }}
                   style={[
                     styles.addChordButton,
                     { borderColor: colors.neutralMedium },
