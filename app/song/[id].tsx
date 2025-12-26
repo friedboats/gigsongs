@@ -890,18 +890,26 @@ export default function SongScreen() {
           <TextInput
             value={text}
             onChangeText={(t) => {
-              // ✅ If user types into a chord line, convert it to lyric (strip marker)
               const prevLines = text.split('\n');
               const nextLines = t.split('\n');
 
               for (let i = 0; i < nextLines.length; i++) {
-                const wasChord = isChordLine(prevLines[i] ?? '');
-                const now = nextLines[i] ?? '';
-                if (wasChord && hasChordMark(now)) {
-                  const content = stripChordMark(now);
-                  if (content.trim().length > 0) {
-                    nextLines[i] = content; // become lyric line
-                  }
+                const prev = prevLines[i] ?? '';
+                const next = nextLines[i] ?? '';
+                const wasChord = isChordLine(prev);
+
+                if (!wasChord) continue;
+
+                // If RN ever drops the marker but the content is otherwise the same,
+                // re-attach it so chord lines remain chord lines (drag stays working).
+                const prevContent = stripChordMark(prev);
+                const nextContent = stripChordMark(next);
+
+                const markerLost = !hasChordMark(next);
+                const contentSame = nextContent === prevContent;
+
+                if (markerLost && contentSame) {
+                  nextLines[i] = CHORD_MARK + nextContent;
                 }
               }
 
