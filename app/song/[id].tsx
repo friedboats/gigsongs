@@ -723,6 +723,35 @@ export default function SongScreen() {
     );
   };
 
+  const renderChordLineHighlights = () => {
+    const lines = text.split('\n');
+
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        {lines.map((line, i) => {
+          if (!isChordLine(line)) return null;
+
+          const top =
+            TEXT_PADDING_TOP + i * LINE_HEIGHT - (textScrollYRef.current || 0);
+
+          return (
+            <View
+              key={`chord-hl-${i}`}
+              style={{
+                position: 'absolute',
+                top,
+                left: 0,
+                right: 0,
+                height: LINE_HEIGHT,
+                backgroundColor: 'rgba(0, 200, 83, 0.35)', // 👈 VERY APPARENT
+              }}
+            />
+          );
+        })}
+      </View>
+    );
+  };
+
   const renderDragCaret = () => {
     if (!dragHover) return null;
 
@@ -885,6 +914,8 @@ export default function SongScreen() {
             {renderDragCaret()}
           </View>
 
+          {renderChordLineHighlights()}
+
           {renderChordSlotGuides()}
 
           <TextInput
@@ -929,6 +960,7 @@ export default function SongScreen() {
                 paddingLeft: EDITOR_PADDING_X,
                 paddingRight: EDITOR_PADDING_X,
                 paddingTop: TEXT_PADDING_TOP,
+                backgroundColor: 'transparent',
               },
             ]}
             placeholder="Type lyrics..."
